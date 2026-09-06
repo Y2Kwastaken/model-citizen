@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    volumes:
+      - music-provider:/music
+    env_file:
+      - path: data/.env
+        required: true
+
+volumes:
+  music-provider:
