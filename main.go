@@ -7,61 +7,22 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/disgoorg/disgo"
-	"github.com/disgoorg/disgo/bot"
-	"github.com/disgoorg/disgo/discord"
-	"github.com/disgoorg/disgo/events"
-	"github.com/disgoorg/disgo/gateway"
+	discordbot "github.com/Y2Kwastaken/model-citizen/discord-bot"
 )
 
 func main() {
-	slog.Info("starting example...")
-	slog.Info("disgo version", slog.String("version", disgo.Version))
+	ctx := context.Background()
 
-	token := os.Getenv("DISCORD_KEY")
-	if token == "" {
-		slog.Error("DISCORD_KEY is not set")
-		return
-	}
+	client, err := discordbot.Start(ctx, "DISCORD_KEY")
 
-	client, err := disgo.New(token,
-		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(
-				gateway.IntentGuildMessages,
-				gateway.IntentMessageContent,
-			),
-		),
-		bot.WithEventListenerFunc(onMessageCreate),
-	)
 	if err != nil {
-		slog.Error("error while building disgo", slog.Any("err", err))
-		return
+		slog.Error("error while starting discord bot", slog.Any("err", err))
+		os.Exit(1)
 	}
+	defer client.Close(ctx)
 
-	defer client.Close(context.TODO())
-
-	if err = client.OpenGateway(context.TODO()); err != nil {
-		slog.Error("errors while connecting to gateway", slog.Any("err", err))
-		return
-	}
-
-	slog.Info("example is now running. Press CTRL-C to exit.")
+	slog.Info("model-citizen is now running. Press CTRL-C to exit.")
 	s := make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-s
-}
-
-func onMessageCreate(event *events.MessageCreate) {
-	if event.Message.Author.Bot {
-		return
-	}
-	var message string
-	if event.Message.Content == "ping" {
-		message = "pong"
-	} else if event.Message.Content == "pong" {
-		message = "ping"
-	}
-	if message != "" {
-		_, _ = event.Client().Rest.CreateMessage(event.ChannelID, discord.NewMessageCreate().WithContent(message))
-	}
 }
