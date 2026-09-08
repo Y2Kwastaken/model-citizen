@@ -27,6 +27,20 @@ var commands = []Command{
 	},
 	{
 		Create: discord.SlashCommandCreate{
+			Name:        "play",
+			Description: "queues a song and starts playback",
+			Options: []discord.ApplicationCommandOption{
+				discord.ApplicationCommandOptionString{
+					Name:        "url",
+					Description: "link to the song",
+					Required:    true,
+				},
+			},
+		},
+		Handler: handlePlay,
+	},
+	{
+		Create: discord.SlashCommandCreate{
 			Name:        "leave",
 			Description: "leaves the user's current voice call",
 		},

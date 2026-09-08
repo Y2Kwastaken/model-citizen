@@ -94,6 +94,23 @@ func (provider *MusicProvider) Advance() (Song, bool) {
 	return next, true
 }
 
+// Complete marks the current song finished and moves past it, whether or not
+// another follows. The bool reports whether a next song was there.
+//
+// Unlike Advance this moves even at the end, leaving the position one past the
+// last song. That position is not a valid song -- Current reports false -- but
+// it is exactly the index the next queued song will occupy, so playback picks
+// up naturally instead of replaying the final track.
+func (provider *MusicProvider) Complete() (Song, bool) {
+	provider.lock.Lock()
+	defer provider.lock.Unlock()
+
+	if provider.queuePosition < len(provider.songs) {
+		provider.queuePosition++
+	}
+	return provider.at(provider.queuePosition)
+}
+
 // Rewind moves to the previous Song and returns it. It reports false, and
 // leaves the position untouched, when already at the start.
 func (provider *MusicProvider) Rewind() (Song, bool) {

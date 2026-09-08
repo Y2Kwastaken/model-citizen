@@ -2,6 +2,7 @@ package discordbot
 
 import (
 	"log/slog"
+	"net/url"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -74,4 +75,17 @@ func userVoiceChannel(client *bot.Client, guild snowflake.ID, user snowflake.ID)
 // connection whose ChannelID is nil.
 func botVoiceChannel(client *bot.Client, guild snowflake.ID) (snowflake.ID, bool) {
 	return userVoiceChannel(client, guild, client.ID())
+}
+
+// validURL reports whether raw is a fetchable http(s) URL.
+//
+// This is a cheap syntactic check, not a liveness one: it rejects junk like
+// "HI!!!!" without a network round trip, but a well-formed link to a site with
+// no media still fails later at download time.
+func validURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
