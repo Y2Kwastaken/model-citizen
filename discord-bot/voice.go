@@ -62,10 +62,16 @@ func handleLeave(_ discord.SlashCommandInteractionData, event *handler.CommandEv
 		if err := event.Client().UpdateVoiceState(event.Ctx, guild, nil, false, false); err != nil {
 			return err
 		}
+		removePlayer(guild)
 		return replyEphemeral(event, "Left.")
 	}
 
 	conn.Close(event.Ctx)
+
+	// Drop the queue after closing the connection, so the audio sender has
+	// stopped before its reader is closed.
+	removePlayer(guild)
+
 	return replyEphemeral(event, "Left.")
 }
 

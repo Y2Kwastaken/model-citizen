@@ -25,6 +25,23 @@ Without it the build fails with `Package dave was not found in the pkg-config se
 path`. The required libdave version is pinned by the `godave/libdave` module — see
 `docs/disgo.md` §9 for details.
 
+## External binaries
+
+Voice playback shells out to `ffmpeg` to decode audio into the PCM that gets encoded
+to opus. The image copies statically linked `ffmpeg` and `ffprobe` binaries from
+`mwader/static-ffmpeg`, pinned **by digest** rather than tag, so every rebuild gets a
+byte-identical binary with no runtime library dependencies and no dependence on
+Debian's archive retention.
+
+To move to a new ffmpeg release, update both the tag and the digest in the Dockerfile:
+
+```sh
+docker pull mwader/static-ffmpeg:<version>
+docker image inspect mwader/static-ffmpeg:<version> --format '{{index .RepoDigests 0}}'
+```
+
+For local runs, any `ffmpeg` on `PATH` works.
+
 ## Docs
 
 - [`docs/disgo.md`](docs/disgo.md) — working reference for the disgo library

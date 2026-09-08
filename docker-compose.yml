@@ -3,9 +3,13 @@ services:
     build: .
     volumes:
       - music-provider:/music
+      # go-ytdlp caches the binary under os.UserCacheDir (/root/.cache here).
+      # Persist it or every restart re-downloads yt-dlp.
+      - ytdlp-cache:/root/.cache
     env_file:
       - path: data/.env
         required: true
 
 volumes:
   music-provider:
+  ytdlp-cache:

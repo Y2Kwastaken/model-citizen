@@ -1,10 +1,11 @@
+FROM mwader/static-ffmpeg:7.1@sha256:a8090df5f5608daef387e1b2e93b98aaacb4d92153ad904e7d715c725724fca4 AS ffmpeg
+
 FROM golang:1.27.1-trixie
 WORKDIR /app
 
-# libdave: Discord's DAVE (E2EE) implementation. Required for voice since
-# 2026-03-01 -- without it audio connections fall back to a noop passthrough
-# that Discord no longer accepts. Version must match the release.txt of the
-# github.com/disgoorg/godave/libdave module in go.mod.
+COPY --from=ffmpeg /ffmpeg /ffprobe /usr/local/bin/
+
+# libdave: Discord's DAVE (E2EE) implementation. Required for voice.
 ARG LIBDAVE_VERSION=v1.1.0
 
 RUN apt-get update \
@@ -38,12 +39,14 @@ RUN set -eux; \
         > /usr/local/lib/pkgconfig/dave.pc; \
     ldconfig
 
+# Sample track for /play. data/ is otherwise ignored (it holds .env).
+COPY data/wave data/wave
 COPY go.mod go.sum ./
 
 RUN go mod download
 COPY . .
 
-# BUILD -- CGO is required to link against libdave.
+# We use CGO to build against binaries like libdave
 RUN CGO_ENABLED=1 GOOS=linux go build -o /model-citizen
 
 # Run

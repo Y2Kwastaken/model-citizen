@@ -15,6 +15,8 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/godave/golibdave"
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/Y2Kwastaken/model-citizen/discord-bot/music"
 )
 
 func Start(ctx context.Context, tokenVariable string) (*bot.Client, error) {
@@ -23,6 +25,10 @@ func Start(ctx context.Context, tokenVariable string) (*bot.Client, error) {
 	token := os.Getenv(tokenVariable)
 	if token == "" {
 		return nil, fmt.Errorf("key not set in environment at variable %s", tokenVariable)
+	}
+
+	if err := music.EnsureYtdlp(ctx); err != nil {
+		return nil, err
 	}
 
 	router, commands := newRouter()
