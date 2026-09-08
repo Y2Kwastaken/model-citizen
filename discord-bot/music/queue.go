@@ -3,6 +3,7 @@ package music
 import (
 	"fmt"
 	"slices"
+	"time"
 )
 
 // Queue operations for MusicProvider.
@@ -124,6 +125,31 @@ func (provider *MusicProvider) Rewind() (Song, bool) {
 
 	provider.queuePosition--
 	return previous, true
+}
+
+func (provider *MusicProvider) CloseCurrent() bool {
+	provider.lock.Lock()
+	defer provider.lock.Unlock()
+
+	if _, ok := provider.at(provider.queuePosition); !ok {
+		return false
+	}
+	if provider.songs[provider.queuePosition].reader == nil {
+		return false
+	}
+	provider.songs[provider.queuePosition].closeReader()
+	return true
+}
+
+func (provider *MusicProvider) CurrentProgress() (Song, time.Duration, bool) {
+	provider.lock.RLock()
+	defer provider.lock.RUnlock()
+
+	song, ok := provider.at(provider.queuePosition)
+	if !ok || song.reader == nil {
+		return Song{}, 0, false
+	}
+	return song, song.reader.Elapsed(), true
 }
 
 // SetReader attaches an opened reader to a Song, closing whatever it replaces.

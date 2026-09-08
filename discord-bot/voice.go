@@ -6,11 +6,38 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/snowflake/v2"
 )
 
 const voiceConnectTimeout = 15 * time.Second
+
+func handleVoiceLeaveEvent(event *events.GuildVoiceLeave) {
+	guild := event.VoiceState.GuildID
+	channelId, ok := botVoiceChannel(event.Client(), guild)
+	if !ok {
+		return
+	}
+
+	userIds := voiceChannelUsers(event.Client(), guild, channelId)
+	if len(userIds) > 1 {
+		return
+	}
+
+	conn := event.Client().VoiceManager.GetConn(guild)
+	if conn == nil {
+		if err := event.Client().UpdateVoiceState(context.Background(), guild, nil, false, false); err != nil {
+			slog.Error("updating voice status", slog.Any("error", err))
+			return
+		}
+		removePlayer(guild)
+		return
+	}
+
+	conn.Close(context.Background())
+	removePlayer(guild)
+}
 
 func handleJoin(_ discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
 	guild, ok := guildID(event)

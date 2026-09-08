@@ -89,3 +89,43 @@ func validURL(raw string) bool {
 	}
 	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
+
+// makes a check to ensure the bot and user are in the same voice channel in the given guild
+//
+// reads the voice channel state of voice channel in the discord guild.
+// returns the bot channel id, user channel id, and true if in same vc, otherwise false.
+func ensureBotInUserVoice(client *bot.Client, guild snowflake.ID, user snowflake.ID) (*snowflake.ID, *snowflake.ID, bool) {
+	botChannel, ok := botVoiceChannel(client, guild)
+	var botChannelPtr *snowflake.ID
+	if ok {
+		botChannelPtr = &botChannel
+	} else {
+		botChannelPtr = nil
+	}
+
+	userChannel, ok := userVoiceChannel(client, guild, user)
+	var userChannelPtr *snowflake.ID
+	if ok {
+		userChannelPtr = &userChannel
+	} else {
+		userChannelPtr = nil
+	}
+
+	return botChannelPtr, userChannelPtr, botChannelPtr != nil && userChannelPtr != nil && *botChannelPtr == *userChannelPtr
+}
+
+// voiceChannelUsers returns the users currently connected to the given voice
+// channel.
+//
+// disgo's voice state cache is keyed by guild, not channel, so the channel
+// filter happens here. Like userVoiceChannel this reads the cache, so it needs
+// gateway.IntentGuildVoiceStates and cache.FlagVoiceStates.
+func voiceChannelUsers(client *bot.Client, guild snowflake.ID, channel snowflake.ID) []snowflake.ID {
+	var users []snowflake.ID
+	for state := range client.Caches.VoiceStates(guild) {
+		if state.ChannelID != nil && *state.ChannelID == channel {
+			users = append(users, state.UserID)
+		}
+	}
+	return users
+}

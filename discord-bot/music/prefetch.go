@@ -38,6 +38,7 @@ func (provider *MusicProvider) EnsureCurrent(ctx context.Context, downloader *Do
 
 	current.File = download.Path
 	current.Title = download.Title
+	current.Duration = download.Duration
 	return current, nil
 }
 
@@ -90,5 +91,6 @@ func (provider *MusicProvider) recordDownload(url string, download Download) {
 		}
 		provider.songs[i].File = download.Path
 		provider.songs[i].Title = download.Title
+		provider.songs[i].Duration = download.Duration
 	}
 }

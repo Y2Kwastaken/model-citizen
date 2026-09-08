@@ -3,6 +3,7 @@ package discordbot
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,68 @@ var (
 	players   = map[snowflake.ID]*music.MusicProvider{}
 )
 
+func handleRewind(_ discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
+	guild, ok := guildID(event)
+	if !ok {
+		return replyEphemeral(event, "This command only works in a server.")
+	}
+
+	client := event.Client()
+	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, event.User().ID)
+	if botChannel == nil {
+		return replyEphemeral(event, "bot must be connected to a voice channel to do this.")
+	}
+	if userChannel == nil {
+		return replyEphemeral(event, "you must be connected to a voice channel to do this.")
+	}
+	if !inSame {
+		return replyEphemeral(event, "you must be in the same channel as the bot to do this.")
+	}
+
+	player, ok := existingPlayer(guild)
+	if !ok || !player.Playing() {
+		return replyEphemeral(event, "Nothing is playing.")
+	}
+
+	song, ok := player.Rewind()
+	if !ok {
+		return replyEphemeral(event, "Nothing is playing.")
+	}
+
+	return reply(event, "Replaying "+playbackLabel(song))
+}
+
+func handleSkip(_ discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
+	guild, ok := guildID(event)
+	if !ok {
+		return replyEphemeral(event, "This command only works in a server.")
+	}
+
+	client := event.Client()
+	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, event.User().ID)
+	if botChannel == nil {
+		return replyEphemeral(event, "bot must be connected to a voice channel to do this.")
+	}
+	if userChannel == nil {
+		return replyEphemeral(event, "you must be connected to a voice channel to do this.")
+	}
+	if !inSame {
+		return replyEphemeral(event, "you must be in the same channel as the bot to do this.")
+	}
+
+	player, ok := existingPlayer(guild)
+	if !ok || !player.Playing() {
+		return replyEphemeral(event, "Nothing is playing.")
+	}
+
+	song, hasSong := player.Current()
+	if !player.CloseCurrent() || !hasSong {
+		return replyEphemeral(event, "Nothing is playing.")
+	}
+
+	return reply(event, "Skipped "+playbackLabel(song))
+}
+
 func handlePlay(data discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
 	guild, ok := guildID(event)
 	if !ok {
@@ -44,23 +107,30 @@ func handlePlay(data discord.SlashCommandInteractionData, event *handler.Command
 	}
 
 	client := event.Client()
-	userChannel, ok := userVoiceChannel(client, guild, event.User().ID)
-	if !ok {
+	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, event.User().ID)
+	if botChannel == nil {
+		return replyEphemeral(event, "bot must be connected to a voice channel to do this.")
+	}
+	if userChannel == nil {
 		return replyEphemeral(event, "you must be connected to a voice channel to do this.")
 	}
-
-	botChannel, ok := botVoiceChannel(client, guild)
-	if !ok {
-		return replyEphemeral(event, "bot must be connected to a void channel to do this.")
-	}
-
-	if userChannel != botChannel {
+	if !inSame {
 		return replyEphemeral(event, "you must be in the same channel as the bot to do this.")
 	}
 
-	url := data.String("url")
-	if !validURL(url) {
-		return replyEphemeral(event, "That doesn't look like a link -- give me an http or https url.")
+	query := strings.TrimSpace(data.String("song"))
+	if query == "" {
+		return replyEphemeral(event, "Give me a link, or something to search for.")
+	}
+
+	// Anything that isn't a link becomes a yt-dlp search target, resolved lazily
+	// at download time -- so a search costs nothing here. The prefix goes on
+	// unconditionally: the target lands in yt-dlp's argv, so a query starting
+	// with "-" would otherwise be read as a flag rather than a search term.
+	target, label := query, query
+	if !validURL(query) {
+		target = "ytsearch1:" + query
+		label = "search: " + query
 	}
 
 	conn := client.VoiceManager.GetConn(guild)
@@ -69,12 +139,12 @@ func handlePlay(data discord.SlashCommandInteractionData, event *handler.Command
 	}
 
 	player := playerFor(guild)
-	if err := player.Queue(url); err != nil {
+	if err := player.Queue(target); err != nil {
 		return replyEphemeral(event, err.Error())
 	}
 
 	if player.Playing() {
-		return reply(event, "Queued.")
+		return replyEphemeral(event, "Queued "+label)
 	}
 
 	if err := event.DeferCreateMessage(false); err != nil {
@@ -89,7 +159,7 @@ func handlePlay(data discord.SlashCommandInteractionData, event *handler.Command
 		if err != nil {
 			slog.Error("starting playback",
 				slog.String("guild_id", guild.String()),
-				slog.String("url", url),
+				slog.String("target", target),
 				slog.Any("err", err),
 			)
 			editResponse(event, "Couldn't play that.")

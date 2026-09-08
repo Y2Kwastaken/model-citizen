@@ -56,6 +56,7 @@ func Start(ctx context.Context, tokenVariable string) (*bot.Client, error) {
 		bot.WithEventListenerFunc(func(e *events.GuildJoin) {
 			syncGuildCommands(e.Client(), e.GuildID, commands)
 		}),
+		bot.WithEventListenerFunc(handleVoiceLeaveEvent),
 	)
 
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/lrstanley/go-ytdlp"
 )
@@ -43,9 +44,10 @@ func EnsureYtdlp(ctx context.Context) error {
 
 // Download is a cached audio file plus the metadata that came with it.
 type Download struct {
-	ID    string
-	Title string
-	Path  string
+	ID       string
+	Title    string
+	Path     string
+	Duration time.Duration
 }
 
 // Downloader fetches audio into a cache directory, one file per video ID.
@@ -130,6 +132,11 @@ func (downloader *Downloader) Get(ctx context.Context, url string) (Download, er
 	download := Download{ID: info.ID, Path: path}
 	if info.Title != nil {
 		download.Title = *info.Title
+	}
+	// yt-dlp reports duration in seconds, and omits it entirely for live
+	// streams and extractors that cannot determine a length.
+	if info.Duration != nil {
+		download.Duration = time.Duration(*info.Duration * float64(time.Second))
 	}
 
 	if err := downloader.evict(path); err != nil {

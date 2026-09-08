@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 type MusicPlayer interface {
@@ -13,12 +14,15 @@ type MusicPlayer interface {
 	PlayNext()
 	PlayPrevious()
 	CacheRetention() int
+	CurrentProgress() (Song, time.Duration, bool)
+	CloseCurrent() bool
 }
 
 type Song struct {
-	URL   string
-	Title string
-	File  string
+	URL      string
+	Title    string
+	File     string
+	Duration time.Duration
 
 	reader *FriendlyOpusReader
 }

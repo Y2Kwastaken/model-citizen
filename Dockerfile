@@ -40,7 +40,6 @@ RUN set -eux; \
     ldconfig
 
 # Sample track for /play. data/ is otherwise ignored (it holds .env).
-COPY data/wave data/wave
 COPY go.mod go.sum ./
 
 RUN go mod download

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"layeh.com/gopus"
@@ -53,6 +54,9 @@ type FriendlyOpusReader struct {
 	primedOnce sync.Once
 	primed     chan struct{} // closed once enough frames are buffered
 
+	// time tracking for the reader
+	sent atomic.Int64
+
 	// err is written by the producer before it closes frames, and read by the
 	// consumer only after observing that close, which orders the two.
 	err error
@@ -91,6 +95,14 @@ func NewFriendlyOpusReader(src io.Reader, closer io.Closer) (*FriendlyOpusReader
 	}
 
 	return reader, nil
+}
+
+// Elapsed reports how much audio has actually been sent. Counting frames
+// rather than wall clock is what makes this exact: if the producer stalls,
+// ProvideOpusFrame blocks and the sender stalls with it, so a clock would
+// drift where the frame count does not.
+func (reader *FriendlyOpusReader) Elapsed() time.Duration {
+	return time.Duration(reader.sent.Load()) * 20 * time.Millisecond
 }
 
 // produce reads PCM, encodes it, and buffers the result until the source ends
@@ -157,6 +169,7 @@ func (reader *FriendlyOpusReader) ProvideOpusFrame() ([]byte, error) {
 
 	frame, ok := <-reader.frames
 	if ok {
+		reader.sent.Add(1)
 		return frame, nil
 	}
 
