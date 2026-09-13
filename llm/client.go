@@ -5,10 +5,13 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 // The bot's personality. Embedded rather than read from disk so it ships in the
@@ -84,8 +87,9 @@ func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake
 	}
 
 	completion, err := provider.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:    provider.model,
-		Messages: messages,
+		Model:           provider.model,
+		Messages:        messages,
+		ReasoningEffort: shared.ReasoningEffortNone,
 	})
 	if err != nil {
 		return "", err
@@ -94,7 +98,52 @@ func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake
 		return "", fmt.Errorf("model returned no choices")
 	}
 
-	return completion.Choices[0].Message.Content, nil
+	return cleanReply(completion.Choices[0].Message.Content, orderedHistory), nil
+}
+
+// timestampLine matches a "[3:52 PM]"-style chat log line.
+var timestampLine = regexp.MustCompile(`^\[\d{1,2}:\d{2}`)
+
+// cleanReply cuts a reply off where the model stops answering and starts
+// writing the rest of the conversation. Small models fed a "name: text"
+// transcript will, some of the time, continue it: fake lines from the people in
+// the room, or a whole timestamped log. Only names actually seen in the history
+// are matched, so an ordinary "note: ..." is left alone.
+func cleanReply(reply string, history []Message) string {
+	names := make(map[string]struct{}, len(history))
+	for _, message := range history {
+		names[message.Name] = struct{}{}
+	}
+
+	knownSpeaker := func(line string) bool {
+		name, _, ok := strings.Cut(line, ":")
+		if !ok {
+			return false
+		}
+		_, known := names[strings.TrimSpace(name)]
+		return known
+	}
+	speakerLine := func(line string) bool {
+		return timestampLine.MatchString(line) || knownSpeaker(line)
+	}
+
+	lines := strings.Split(strings.TrimSpace(reply), "\n")
+
+	// the model sometimes opens by echoing a speaker tag before answering as
+	// itself; keep what follows. a timestamped opener is a log, not an answer.
+	if len(lines) > 0 && knownSpeaker(lines[0]) {
+		_, rest, _ := strings.Cut(lines[0], ":")
+		lines[0] = strings.TrimSpace(rest)
+	}
+
+	for i := 0; i < len(lines); i++ {
+		if speakerLine(lines[i]) {
+			lines = lines[:i]
+			break
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func (provider *BasicClientProvider) History() HistoryProvider {

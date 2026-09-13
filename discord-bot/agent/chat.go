@@ -14,8 +14,8 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-// mentionPattern matches a user or role mention, including the legacy "!" form
-// Discord still sends for nicknamed members.
+// mentionPattern matches any user or role mention token, including the legacy
+// "!" form Discord still sends for nicknamed members.
 var mentionPattern = regexp.MustCompile(`<@[!&]?\d+>`)
 
 func HandleMessage(brain llm.BrainClient, event *events.GuildMessageCreate) {
@@ -33,12 +33,15 @@ func respond(client *bot.Client, brain llm.BrainClient, channel snowflake.ID, me
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := client.Rest.SendTyping(channel); err != nil {
-		slog.Warn("Failed to send typing indicator",
-			slog.String("channel_id", channel.String()),
-			slog.Any("error", err),
-		)
-	}
+	// best effort and off the critical path: overlaps the discord round trip with the model call
+	go func() {
+		if err := client.Rest.SendTyping(channel); err != nil {
+			slog.Warn("Failed to send typing indicator",
+				slog.String("channel_id", channel.String()),
+				slog.Any("error", err),
+			)
+		}
+	}()
 
 	reply, err := brain.Chat(ctx, channel)
 	if err != nil {
@@ -48,7 +51,7 @@ func respond(client *bot.Client, brain llm.BrainClient, channel snowflake.ID, me
 
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
-		slog.Error("Empty Bot Text reply", slog.String("channel_id", channel.String()))
+		slog.Warn("Empty Bot Text reply", slog.String("channel_id", channel.String()))
 		return
 	}
 
@@ -77,8 +80,8 @@ func appendHistory(brain llm.BrainClient, message discord.Message, selfID snowfl
 		sender = llm.User
 	}
 
-	// the model has no use for "<@1234567890>" and would parrot it back
-	content := stripMentions(message.Content)
+	// the model has no use for "<@1234567890>", but it does care who was addressed
+	content := inlineMentions(message)
 	if content == "" {
 		return
 	}
@@ -86,9 +89,26 @@ func appendHistory(brain llm.BrainClient, message discord.Message, selfID snowfl
 	brain.History().InsertMessage(
 		message.ChannelID,
 		sender,
-		message.Author.Username,
+		speakerName(message),
 		content,
 	)
+}
+
+// speakerName is the username, plus the name people in the room actually call
+// them if it differs: the guild nickname, else the global display name.
+// "jimbo1230054 (Jimbotron)" lets the model connect what it is told to who said it.
+func speakerName(message discord.Message) string {
+	username := message.Author.Username
+
+	display := message.Author.EffectiveName()
+	if message.Member != nil && message.Member.Nick != nil {
+		display = *message.Member.Nick
+	}
+
+	if display == username {
+		return username
+	}
+	return username + " (" + display + ")"
 }
 
 func shouldRespond(bot snowflake.ID, message discord.Message) bool {
@@ -107,9 +127,20 @@ func shouldRespond(bot snowflake.ID, message discord.Message) bool {
 	return mentionBot
 }
 
-// stripMentions removes mention tokens and normalises the remaining whitespace.
-func stripMentions(content string) string {
-	return strings.Join(strings.Fields(mentionPattern.ReplaceAllString(content, " ")), " ")
+// inlineMentions rewrites user mention tokens to "@username" so the model sees
+// who was addressed without any discord ids. Anything left unresolved (roles,
+// users not in the payload) is dropped, and whitespace is normalised.
+func inlineMentions(message discord.Message) string {
+	pairs := make([]string, 0, len(message.Mentions)*4)
+	for _, user := range message.Mentions {
+		id := user.ID.String()
+		name := "@" + user.Username
+		pairs = append(pairs, "<@"+id+">", name, "<@!"+id+">", name)
+	}
+
+	content := strings.NewReplacer(pairs...).Replace(message.Content)
+	content = mentionPattern.ReplaceAllString(content, " ")
+	return strings.Join(strings.Fields(content), " ")
 }
 
 func truncate(content string, limit int) string {
