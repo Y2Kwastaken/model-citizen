@@ -8,7 +8,18 @@ This discord bot is truly a model citizen
 docker compose up --build
 ```
 
-Requires `data/.env` with `DISCORD_KEY` set.
+Requires `data/.env` with:
+
+| Variable | Purpose |
+| --- | --- |
+| `DISCORD_KEY` | Discord bot token |
+| `MODEL_AUTH_KEY` | API key for the chat model (NVIDIA NIM `nvapi-...`) |
+| `MODEL_NAME` | Model id, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b` |
+
+Chat replies also need the **Message Content** privileged intent enabled in the
+Discord developer portal (Bot -> Privileged Gateway Intents). It is declared in
+`modelbot.go`, but Discord blanks every message's content until it is toggled on
+there too, so the bot silently ignores mentions without it.
 
 ## Building locally
 
