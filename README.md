@@ -14,7 +14,39 @@ Requires `data/.env` with:
 | --- | --- |
 | `DISCORD_KEY` | Discord bot token |
 | `MODEL_AUTH_KEY` | API key for the chat model (NVIDIA NIM `nvapi-...`) |
-| `MODEL_NAME` | Model id, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| `MODEL_NAME` | Fallback model id, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| `MODEL_LINK` | Fallback base URL, e.g. `https://integrate.api.nvidia.com/v1` |
+| `MODEL_FILE` | Optional path to the rotation file, defaults to `models.json` |
+
+### Model rotation
+
+The bot cycles through the models in `data/models.json`, which compose mounts
+into the container:
+
+```json
+[
+  {
+    "name": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "auth_key": "MODEL_AUTH_KEY"
+  }
+]
+```
+
+`auth_key` is the *name* of the environment variable holding that model's key,
+never the key itself — the roster is committed, `data/.env` is not. Each entry
+resolves its own variable, so pointing a model at a different service is a new
+entry plus a new line in `data/.env`. A model whose variable is unset is logged
+and dropped from the rotation rather than stopping the bot, so you can list a
+service before you have credentials for it.
+
+Every reply is timed. A fast model works its score down, a slow one works it up,
+and a model that crosses the score or errors outright is benched — the request
+is retried on the next model rather than failing. Benched models come back after
+five minutes, because an endpoint being down is nearly always temporary.
+
+`MODEL_NAME` and `MODEL_LINK` are only the fallback for when the file is missing
+or unreadable, so the bot still starts with a rotation of one.
 
 Chat replies also need the **Message Content** privileged intent enabled in the
 Discord developer portal (Bot -> Privileged Gateway Intents). It is declared in

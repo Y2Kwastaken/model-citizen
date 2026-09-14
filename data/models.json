@@ -1,0 +1,22 @@
+[
+    {
+        "name": "gemma4:31b",
+        "base_url": "https://ollama.com/v1",
+        "auth_key": "OLLAMA_MODEL_KEY"
+    },
+    {
+        "name": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "auth_key": "MODEL_AUTH_KEY"
+    },
+    {
+        "name": "deepseek-ai/deepseek-v4-flash-0731",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "auth_key": "MODEL_AUTH_KEY"
+    },
+    {
+        "name": "nvidia/nemotron-3-ultra-550b-a55b",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "auth_key": "MODEL_AUTH_KEY"
+    }
+]

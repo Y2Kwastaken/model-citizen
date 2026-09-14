@@ -321,13 +321,18 @@ func humanize(reply string, history []Message) string {
 	return clip(unhook(strings.TrimSpace(reply)), limit)
 }
 
+// completer runs one chat completion. It is a function rather than a client so
+// draw stays out of the question of *which* model answered: the provider picks,
+// times and fails over behind this, and a redraw here just asks again.
+type completer func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
+
 // draw asks the model for a reply and, when judge objects, asks again with a
 // system nudge saying what went wrong. The last draw is kept either way, and
 // a redraw that fails (the deadline, usually) keeps the draft before it.
-func draw(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, history []Message) (string, error) {
+func draw(ctx context.Context, complete completer, params openai.ChatCompletionNewParams, history []Message) (string, error) {
 	var reply string
 	for attempt := 0; ; attempt++ {
-		completion, err := client.Chat.Completions.New(ctx, params)
+		completion, err := complete(ctx, params)
 		if err != nil {
 			if attempt > 0 {
 				slog.Warn("redraw failed, keeping previous draft", slog.Any("error", err))
