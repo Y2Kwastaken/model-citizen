@@ -50,18 +50,15 @@ type Model struct {
 	client openai.Client
 	name   string
 	score  int
-	// when this model was last taken out of rotation, for parole
+	// time since out of rotation
 	benched time.Time
-	// position in the provider's slice, so a verdict can be attributed back to
-	// the model that earned it even if another goroutine rotated in between
+	// position in the provider's slice
 	index int
 }
 
 type jsonModel struct {
 	Name    string `json:"name"`
 	BaseUrl string `json:"base_url"`
-	// the *name* of the environment variable holding this model's key, never
-	// the key itself: models.json is committed, data/.env is not
 	AuthKey string `json:"auth_key"`
 }
 
@@ -131,10 +128,7 @@ func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 			client: openai.NewClient(
 				option.WithBaseURL(modelData.BaseUrl),
 				option.WithAPIKey(authKey),
-				// The rotation is the retry policy. The client's own retries
-				// run *inside* the per-model deadline with up to 8s of backoff,
-				// which spends this model's whole slice waiting and swallows
-				// the status code that explains why.
+				// we have our own retry policy
 				option.WithMaxRetries(0),
 			),
 			name:  modelData.Name,
@@ -198,8 +192,7 @@ func (provider *ModelProvider) Judge(model Model, latency time.Duration) {
 	case latency >= kill_threshold:
 		judged.score = skip_score
 	case latency <= reward_threshold:
-		// floored, so a model with a good morning cannot bank enough credit to
-		// ride out a bad afternoon
+		// floor so no good favor is built
 		judged.score = max(judged.score-1, 0)
 	case latency >= punish_threshold:
 		judged.score += 2
@@ -210,8 +203,6 @@ func (provider *ModelProvider) Judge(model Model, latency time.Duration) {
 	}
 	judged.benched = time.Now()
 
-	// A verdict from a request that started before the last swap still counts
-	// against its own model, but it does not get to move the rotation again.
 	if model.index != provider.selected {
 		return
 	}
@@ -263,9 +254,7 @@ func nextModel(provider *ModelProvider) {
 		return
 	}
 
-	// Nothing is healthy and nothing has served its parole. Take whichever has
-	// been benched longest rather than strand the bot on a model we already
-	// gave up on — staying put would just hammer the same dead endpoint.
+	// Nothing is healthy and nothing has served its parole. take longest benched
 	stalest := 0
 	for i := range provider.models {
 		if provider.models[i].benched.Before(provider.models[stalest].benched) {

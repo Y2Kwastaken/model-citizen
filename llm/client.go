@@ -83,10 +83,7 @@ func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake
 	}, orderedHistory)
 }
 
-// complete runs one completion against the currently selected model, times it,
-// and hands the verdict to the manager. A model that errors is benched and the
-// next one gets the same request, so a dead endpoint costs one attempt rather
-// than the whole reply.
+// complete runs one completion against the currently selected model, times it, and hands the verdict to the manager.
 func (provider *BasicClientProvider) complete(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 	var lastErr error
 
@@ -95,10 +92,7 @@ func (provider *BasicClientProvider) complete(ctx context.Context, params openai
 	for attempt := range provider.models.Count() {
 		model := provider.models.Model()
 
-		// When every model is benched the manager paroles the stalest one so
-		// the *next* request has somewhere to go. Within this request that is
-		// a model we already gave up on seconds ago, so stop rather than spend
-		// another slice of the deadline on it.
+		// every model is benched we must parole
 		if tried[model.index] {
 			break
 		}
@@ -112,14 +106,11 @@ func (provider *BasicClientProvider) complete(ctx context.Context, params openai
 		cancel()
 
 		if err == nil {
-			// only calls that actually returned are worth a latency reading; a
-			// failure is a bench, not a slow score
+			// don't punish on errors
 			provider.models.Judge(model, latency)
 			return completion, nil
 		}
 
-		// the caller's reply deadline ran out, not this model's slice of it.
-		// Benching here would punish a model for the handler giving up.
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("%s: %w", model.name, err)
 		}
@@ -132,9 +123,9 @@ func (provider *BasicClientProvider) complete(ctx context.Context, params openai
 			slog.Duration("latency", latency),
 			slog.Any("error", err),
 		}
-		// a deadline tells us nothing about *why*; the status does
-		var apiErr *openai.Error
-		if errors.As(err, &apiErr) {
+
+		// a report the why
+		if apiErr, ok := errors.AsType[*openai.Error](err); ok {
 			fields = append(fields, slog.Int("status", apiErr.StatusCode))
 		}
 		slog.Warn("model call failed, failing over", fields...)
