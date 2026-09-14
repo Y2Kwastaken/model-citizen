@@ -5,8 +5,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"regexp"
-	"strings"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/openai/openai-go/v3"
@@ -71,8 +69,6 @@ func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake
 		return "", fmt.Errorf("no history to give chat model")
 	}
 
-	// The system prompt leads every request and never varies, which is also
-	// what providers key prompt caching on.
 	orderedHistory := history.OrderedHistory(channel)
 	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(orderedHistory)+1)
 	messages = append(messages, openai.SystemMessage(provider.systemPrompt))
@@ -82,68 +78,18 @@ func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake
 		case Self:
 			messages = append(messages, openai.AssistantMessage(message.Content))
 		default:
-			messages = append(messages, openai.UserMessage(message.Name+": "+message.Content))
+			messages = append(messages, openai.UserMessage(message.Name+": "+stripSelfMentions(message.Content, orderedHistory)))
 		}
 	}
 
-	completion, err := provider.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+	return draw(ctx, provider.client, openai.ChatCompletionNewParams{
 		Model:           provider.model,
 		Messages:        messages,
 		ReasoningEffort: shared.ReasoningEffortNone,
-	})
-	if err != nil {
-		return "", err
-	}
-	if len(completion.Choices) == 0 {
-		return "", fmt.Errorf("model returned no choices")
-	}
-
-	return cleanReply(completion.Choices[0].Message.Content, orderedHistory), nil
-}
-
-// timestampLine matches a "[3:52 PM]"-style chat log line.
-var timestampLine = regexp.MustCompile(`^\[\d{1,2}:\d{2}`)
-
-// cleanReply cuts a reply off where the model stops answering and starts
-// writing the rest of the conversation. Small models fed a "name: text"
-// transcript will, some of the time, continue it: fake lines from the people in
-// the room, or a whole timestamped log. Only names actually seen in the history
-// are matched, so an ordinary "note: ..." is left alone.
-func cleanReply(reply string, history []Message) string {
-	names := make(map[string]struct{}, len(history))
-	for _, message := range history {
-		names[message.Name] = struct{}{}
-	}
-
-	knownSpeaker := func(line string) bool {
-		name, _, ok := strings.Cut(line, ":")
-		if !ok {
-			return false
-		}
-		_, known := names[strings.TrimSpace(name)]
-		return known
-	}
-	speakerLine := func(line string) bool {
-		return timestampLine.MatchString(line) || knownSpeaker(line)
-	}
-
-	lines := strings.Split(strings.TrimSpace(reply), "\n")
-
-	// the model sometimes opens by echoing a speaker tag before answering as
-	// itself; keep what follows. a timestamped opener is a log, not an answer.
-	if len(lines) > 0 && knownSpeaker(lines[0]) {
-		_, rest, _ := strings.Cut(lines[0], ":")
-		lines[0] = strings.TrimSpace(rest)
-	}
-
-	for i := 0; i < len(lines); i++ {
-		if speakerLine(lines[i]) {
-			lines = lines[:i]
-			break
-		}
-	}
-
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+		Temperature:     openai.Float(temperature),
+		TopP:            openai.Float(topP),
+		MaxTokens:       openai.Int(maxReplyTokens),
+	}, orderedHistory)
 }
 
 func (provider *BasicClientProvider) History() HistoryProvider {
