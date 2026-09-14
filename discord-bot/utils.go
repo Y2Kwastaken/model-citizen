@@ -1,6 +1,7 @@
 package discordbot
 
 import (
+	"errors"
 	"log/slog"
 	"net/url"
 
@@ -112,6 +113,22 @@ func ensureBotInUserVoice(client *bot.Client, guild snowflake.ID, user snowflake
 	}
 
 	return botChannelPtr, userChannelPtr, botChannelPtr != nil && userChannelPtr != nil && *botChannelPtr == *userChannelPtr
+}
+
+// requireSharedVoice is the precondition for touching playback: the bot is in
+// a voice channel, and user is in the same one. The error is worded for
+// whoever asked, so it can be shown to them as is.
+func requireSharedVoice(client *bot.Client, guild snowflake.ID, user snowflake.ID) error {
+	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, user)
+	switch {
+	case botChannel == nil:
+		return errors.New("bot must be connected to a voice channel to do this.")
+	case userChannel == nil:
+		return errors.New("you must be connected to a voice channel to do this.")
+	case !inSame:
+		return errors.New("you must be in the same channel as the bot to do this.")
+	}
+	return nil
 }
 
 // voiceChannelUsers returns the users currently connected to the given voice

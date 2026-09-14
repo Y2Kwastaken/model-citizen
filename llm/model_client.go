@@ -8,13 +8,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/disgoorg/snowflake/v2"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 )
 
-// The bot's personality. Embedded rather than read from disk so it ships in the
-// binary — data/ is excluded by .dockerignore and there is no path to resolve.
+// personality file
 //
 //go:embed prompts/system.md
 var defaultSystemPrompt string
@@ -22,19 +20,25 @@ var defaultSystemPrompt string
 // a perModelTimeout
 const perModelTimeout = kill_threshold
 
+// maxToolRounds is how many times in one reply the model may call tools before
+// it has to answer in words. One is the normal case; two lets it react to a
+// result.
+const maxToolRounds = 2
+
 type BrainClient interface {
-	// Chat sends the channel's recorded history and returns the model's reply.
-	//
-	// The API itself is stateless; the brain owns the history via History().
-	Chat(ctx context.Context, channel snowflake.ID) (string, error)
+	// Chat sends the channel's recorded history and returns the model's reply,
+	// running any tools it asks for along the way.
+	Chat(ctx context.Context, origin Origin) (string, error)
 	// the history provision for this brain
 	History() HistoryProvider
+	Tools() ModelTools
 }
 
 type BasicClientProvider struct {
 	models       ModelManager
 	systemPrompt string
 	history      HistoryProvider
+	tools        ModelTools
 }
 
 // NewBrainClient builds a client from environment variable *names*, matching
@@ -49,13 +53,15 @@ func NewBrainClient(modelsFile string, modelAuthKey string, modelNameKey string,
 		models:       models,
 		systemPrompt: defaultSystemPrompt,
 		history:      NewChatHistory(),
+		tools:        NewModelTools(),
 	}
 
 	return &provider, nil
 }
 
-func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake.ID) (string, error) {
+func (provider *BasicClientProvider) Chat(ctx context.Context, origin Origin) (string, error) {
 	history := provider.history
+	channel := origin.Channel
 
 	if history.Empty(channel) {
 		return "", fmt.Errorf("no history to give chat model")
@@ -74,13 +80,67 @@ func (provider *BasicClientProvider) Chat(ctx context.Context, channel snowflake
 		}
 	}
 
-	return draw(ctx, provider.complete, openai.ChatCompletionNewParams{
+	return provider.act(ctx, openai.ChatCompletionNewParams{
 		Messages:        messages,
+		Tools:           provider.tools.Build(),
 		ReasoningEffort: shared.ReasoningEffortNone,
 		Temperature:     openai.Float(temperature),
 		TopP:            openai.Float(topP),
 		MaxTokens:       openai.Int(maxReplyTokens),
-	}, orderedHistory)
+	}, orderedHistory, origin)
+}
+
+// act runs the model until it answers in words. Each round it either calls
+// tools, which run and report back into the conversation, or writes a reply.
+// The reply then takes the usual judge pass with the tools withdrawn, so a
+// redraw can never run an action twice.
+func (provider *BasicClientProvider) act(ctx context.Context, params openai.ChatCompletionNewParams, history []Message, origin Origin) (string, error) {
+	for round := 0; ; round++ {
+		// the last round is words only
+		if round >= maxToolRounds {
+			params.Tools = nil
+		}
+
+		completion, err := provider.complete(ctx, params)
+		if err != nil {
+			return "", err
+		}
+		if len(completion.Choices) == 0 {
+			return "", fmt.Errorf("model returned no choices")
+		}
+
+		message := completion.Choices[0].Message
+		if len(message.ToolCalls) == 0 || params.Tools == nil {
+			params.Tools = nil
+			return draw(ctx, provider.complete, params, history, completion)
+		}
+
+		// the assistant turn that made the calls has to precede their results
+		params.Messages = append(params.Messages, message.ToParam())
+		for _, call := range message.ToolCalls {
+			result := provider.invoke(ctx, call, origin)
+			params.Messages = append(params.Messages, openai.ToolMessage(result, call.ID))
+		}
+	}
+}
+
+// invoke runs one tool call and returns what to tell the model happened.
+func (provider *BasicClientProvider) invoke(ctx context.Context, call openai.ChatCompletionMessageToolCallUnion, origin Origin) string {
+	name := call.Function.Name
+	tool, ok := provider.tools.Lookup(name)
+	if !ok {
+		slog.Warn("model called a tool that does not exist", slog.String("tool", name))
+		return "there is no tool called " + name
+	}
+
+	slog.Info("running tool",
+		slog.String("tool", name),
+		slog.String("arguments", call.Function.Arguments),
+		slog.String("guild_id", origin.Guild.String()),
+	)
+	result := tool.Handle(ctx, Invocation{Origin: origin, Arguments: call.Function.Arguments})
+	slog.Debug("tool result", slog.String("tool", name), slog.String("result", result))
+	return result
 }
 
 // complete runs one completion against the currently selected model, times it, and hands the verdict to the manager.
@@ -140,4 +200,8 @@ func (provider *BasicClientProvider) complete(ctx context.Context, params openai
 
 func (provider *BasicClientProvider) History() HistoryProvider {
 	return provider.history
+}
+
+func (provider *BasicClientProvider) Tools() ModelTools {
+	return provider.tools
 }

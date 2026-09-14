@@ -10,10 +10,9 @@ func TestCleanReply(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"lmao no", "lmao no"},
 		{"lmao no\n\nmiles_dev (Miles): but why tho\nmiles_dev (Miles): come on", "lmao no"},
-		// nobody asked for detail, so a multi-line reply is cut to its first thought
-		{"miles_dev (Miles): ok here we go\nit's a sandwich", "ok here we go"},
-		{"[3:52 PM] miles_dev: lmao\n[3:52 PM] modelcitizen: depends", ""},
-		{"note: don't do that\nseriously", "note: don't do that"},
+		// a multi-line reply is the model's call, only the echoed tag goes
+		{"miles_dev (Miles): ok here we go\nit's a sandwich", "ok here we go\nit's a sandwich"},
+		{"note: don't do that\nseriously", "note: don't do that\nseriously"},
 		{"modelcitizen: rip dog man", "rip dog man"},
 		{"  padded  \n", "padded"},
 		{"`modelcitizen: not much, you`</think>normies trying to figure it out", "normies trying to figure it out"},

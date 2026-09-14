@@ -2,11 +2,13 @@ package discordbot
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/disgo/voice"
@@ -44,29 +46,32 @@ func handleRewind(_ discord.SlashCommandInteractionData, event *handler.CommandE
 		return replyEphemeral(event, "This command only works in a server.")
 	}
 
-	client := event.Client()
-	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, event.User().ID)
-	if botChannel == nil {
-		return replyEphemeral(event, "bot must be connected to a voice channel to do this.")
+	song, err := rewindCurrent(event.Client(), guild, event.User().ID)
+	if err != nil {
+		return replyEphemeral(event, err.Error())
 	}
-	if userChannel == nil {
-		return replyEphemeral(event, "you must be connected to a voice channel to do this.")
-	}
-	if !inSame {
-		return replyEphemeral(event, "you must be in the same channel as the bot to do this.")
+
+	return reply(event, "Replaying "+playbackLabel(song))
+}
+
+// rewindCurrent restarts the song playing in guild, if user is in voice with
+// the bot. The error, when there is one, is worded for whoever asked.
+func rewindCurrent(client *bot.Client, guild snowflake.ID, user snowflake.ID) (music.Song, error) {
+	if err := requireSharedVoice(client, guild, user); err != nil {
+		return music.Song{}, err
 	}
 
 	player, ok := existingPlayer(guild)
 	if !ok || !player.Playing() {
-		return replyEphemeral(event, "Nothing is playing.")
+		return music.Song{}, errors.New("Nothing is playing.")
 	}
 
 	song, ok := player.Rewind()
 	if !ok {
-		return replyEphemeral(event, "Nothing is playing.")
+		return music.Song{}, errors.New("Nothing is playing.")
 	}
 
-	return reply(event, "Replaying "+playbackLabel(song))
+	return song, nil
 }
 
 func handleSkip(_ discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
@@ -75,29 +80,32 @@ func handleSkip(_ discord.SlashCommandInteractionData, event *handler.CommandEve
 		return replyEphemeral(event, "This command only works in a server.")
 	}
 
-	client := event.Client()
-	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, event.User().ID)
-	if botChannel == nil {
-		return replyEphemeral(event, "bot must be connected to a voice channel to do this.")
+	song, err := skipCurrent(event.Client(), guild, event.User().ID)
+	if err != nil {
+		return replyEphemeral(event, err.Error())
 	}
-	if userChannel == nil {
-		return replyEphemeral(event, "you must be connected to a voice channel to do this.")
-	}
-	if !inSame {
-		return replyEphemeral(event, "you must be in the same channel as the bot to do this.")
+
+	return reply(event, "Skipped "+playbackLabel(song))
+}
+
+// skipCurrent ends the song playing in guild, if user is in voice with the bot.
+// The error, when there is one, is worded for whoever asked.
+func skipCurrent(client *bot.Client, guild snowflake.ID, user snowflake.ID) (music.Song, error) {
+	if err := requireSharedVoice(client, guild, user); err != nil {
+		return music.Song{}, err
 	}
 
 	player, ok := existingPlayer(guild)
 	if !ok || !player.Playing() {
-		return replyEphemeral(event, "Nothing is playing.")
+		return music.Song{}, errors.New("Nothing is playing.")
 	}
 
 	song, hasSong := player.Current()
 	if !player.CloseCurrent() || !hasSong {
-		return replyEphemeral(event, "Nothing is playing.")
+		return music.Song{}, errors.New("Nothing is playing.")
 	}
 
-	return reply(event, "Skipped "+playbackLabel(song))
+	return song, nil
 }
 
 func handlePlay(data discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
@@ -106,21 +114,70 @@ func handlePlay(data discord.SlashCommandInteractionData, event *handler.Command
 		return replyEphemeral(event, "This command only works in a server.")
 	}
 
+	// The cheap checks run here so their answers can stay ephemeral; a
+	// deferred response cannot be made ephemeral after the fact.
 	client := event.Client()
-	botChannel, userChannel, inSame := ensureBotInUserVoice(client, guild, event.User().ID)
-	if botChannel == nil {
-		return replyEphemeral(event, "bot must be connected to a voice channel to do this.")
+	if _, _, err := voiceTarget(client, guild, event.User().ID); err != nil {
+		return replyEphemeral(event, err.Error())
 	}
-	if userChannel == nil {
-		return replyEphemeral(event, "you must be connected to a voice channel to do this.")
-	}
-	if !inSame {
-		return replyEphemeral(event, "you must be in the same channel as the bot to do this.")
-	}
-
 	query := strings.TrimSpace(data.String("song"))
 	if query == "" {
 		return replyEphemeral(event, "Give me a link, or something to search for.")
+	}
+
+	if err := event.DeferCreateMessage(false); err != nil {
+		return err
+	}
+
+	// enqueue may join voice, which blocks on the handshake, so like handleJoin
+	// it runs off the gateway goroutine.
+	go func() {
+		ctx := context.WithoutCancel(event.Ctx)
+		queued, err := enqueue(ctx, client, guild, event.User().ID, query)
+		if err != nil {
+			editResponse(event, err.Error())
+			return
+		}
+
+		if queued.player.Playing() {
+			editResponse(event, "Queued "+queued.label)
+			return
+		}
+
+		startPlaybackAsync(ctx, guild, queued, func(song music.Song, err error) {
+			if err != nil {
+				editResponse(event, "Couldn't play that.")
+				return
+			}
+			editResponse(event, "Playing "+playbackLabel(song))
+		})
+	}()
+
+	return nil
+}
+
+// queued is a song that made it onto a guild's queue, with what the caller
+// needs to start it if nothing is playing.
+type queued struct {
+	conn   voice.Conn
+	player *music.MusicProvider
+	target string
+	label  string
+}
+
+// enqueue puts query on guild's queue, joining user's voice channel first if
+// the bot is not in one. It may block on that handshake, so it must not run on
+// the gateway goroutine. The error, when there is one, is worded for whoever
+// asked.
+func enqueue(ctx context.Context, client *bot.Client, guild snowflake.ID, user snowflake.ID, query string) (*queued, error) {
+	conn, err := ensureVoice(ctx, client, guild, user)
+	if err != nil {
+		return nil, err
+	}
+
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, errors.New("Give me a link, or something to search for.")
 	}
 
 	// Anything that isn't a link becomes a yt-dlp search target, resolved lazily
@@ -133,46 +190,38 @@ func handlePlay(data discord.SlashCommandInteractionData, event *handler.Command
 		label = "search: " + query
 	}
 
-	conn := client.VoiceManager.GetConn(guild)
-	if conn == nil || conn.ChannelID() == nil {
-		return replyEphemeral(event, "I've lost my voice connection -- try /leave then /join.")
-	}
-
 	player := playerFor(guild)
 	if err := player.Queue(target); err != nil {
-		return replyEphemeral(event, err.Error())
+		return nil, err
 	}
 
-	if player.Playing() {
-		return replyEphemeral(event, "Queued "+label)
-	}
+	return &queued{conn: conn, player: player, target: target, label: label}, nil
+}
 
-	if err := event.DeferCreateMessage(false); err != nil {
-		return err
-	}
-
+// startPlaybackAsync starts the head of the queue in the background and calls
+// report once it is playing or has failed. The download outlives parent's
+// cancellation on purpose: the caller has usually already answered by then.
+func startPlaybackAsync(parent context.Context, guild snowflake.ID, queued *queued, report func(music.Song, error)) {
 	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(event.Ctx), playbackTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), playbackTimeout)
 		defer cancel()
 
-		song, reader, err := startPlayback(ctx, conn, player)
+		song, reader, err := startPlayback(ctx, queued.conn, queued.player)
 		if err != nil {
 			slog.Error("starting playback",
 				slog.String("guild_id", guild.String()),
-				slog.String("target", target),
+				slog.String("target", queued.target),
 				slog.Any("err", err),
 			)
-			editResponse(event, "Couldn't play that.")
+			report(song, err)
 			return
 		}
 
 		// Nothing else notices when this track ends, so hand it to a watcher.
-		go advanceOnFinish(conn, player, reader, guild)
+		go advanceOnFinish(queued.conn, queued.player, reader, guild)
 
-		editResponse(event, "Playing "+playbackLabel(song))
+		report(song, nil)
 	}()
-
-	return nil
 }
 
 func playbackLabel(song music.Song) string {
@@ -189,7 +238,7 @@ func playbackLabel(song music.Song) string {
 // speaking flags, encryption -- it does itself.
 //
 // This blocks on the download, so it must not run on the gateway event
-// goroutine. See connectVoice for why.
+// goroutine. See handleJoin for why.
 func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProvider) (music.Song, *music.FriendlyOpusReader, error) {
 	downloader, err := getDownloader()
 	if err != nil {

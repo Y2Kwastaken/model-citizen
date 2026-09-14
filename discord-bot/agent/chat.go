@@ -14,8 +14,6 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-// mentionPattern matches any user or role mention token, including the legacy
-// "!" form Discord still sends for nicknamed members.
 var mentionPattern = regexp.MustCompile(`<@[!&]?\d+>`)
 
 func HandleMessage(brain llm.BrainClient, event *events.GuildMessageCreate) {
@@ -26,12 +24,17 @@ func HandleMessage(brain llm.BrainClient, event *events.GuildMessageCreate) {
 		return
 	}
 
-	go respond(event.Client(), brain, message.ChannelID, event.MessageID)
+	go respond(event.Client(), brain, llm.Origin{
+		Guild:   event.GuildID,
+		Channel: message.ChannelID,
+		Caller:  message.Author.ID,
+	}, event.MessageID)
 }
 
-func respond(client *bot.Client, brain llm.BrainClient, channel snowflake.ID, messageID snowflake.ID) {
+func respond(client *bot.Client, brain llm.BrainClient, origin llm.Origin, messageID snowflake.ID) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	channel := origin.Channel
 
 	// best effort and off the critical path: overlaps the discord round trip with the model call
 	go func() {
@@ -43,7 +46,7 @@ func respond(client *bot.Client, brain llm.BrainClient, channel snowflake.ID, me
 		}
 	}()
 
-	reply, err := brain.Chat(ctx, channel)
+	reply, err := brain.Chat(ctx, origin)
 	if err != nil {
 		slog.Error("Bot Reply Failure (Timeout Likely)", slog.String("channel_id", channel.String()), slog.Any("error", err))
 		return

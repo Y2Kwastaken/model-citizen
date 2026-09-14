@@ -68,6 +68,8 @@ func Start(ctx context.Context, llm llm.BrainClient, tokenVariable string) (*bot
 		return nil, fmt.Errorf("building disgo client: %w", err)
 	}
 
+	registerTools(client, llm)
+
 	if err = client.OpenGateway(ctx); err != nil {
 		client.Close(ctx)
 		return nil, fmt.Errorf("connecting to gateway: %w", err)

@@ -2,12 +2,15 @@ package discordbot
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/handler"
+	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -25,34 +28,15 @@ func handleVoiceLeaveEvent(event *events.GuildVoiceLeave) {
 		return
 	}
 
-	conn := event.Client().VoiceManager.GetConn(guild)
-	if conn == nil {
-		if err := event.Client().UpdateVoiceState(context.Background(), guild, nil, false, false); err != nil {
-			slog.Error("updating voice status", slog.Any("error", err))
-			return
-		}
-		removePlayer(guild)
-		return
+	if err := disconnectVoice(context.Background(), event.Client(), guild); err != nil {
+		slog.Error("updating voice status", slog.Any("error", err))
 	}
-
-	conn.Close(context.Background())
-	removePlayer(guild)
 }
 
 func handleJoin(_ discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
 	guild, ok := guildID(event)
 	if !ok {
 		return replyEphemeral(event, "This command only works in a server.")
-	}
-
-	_, ok = botVoiceChannel(event.Client(), guild)
-	if ok {
-		return replyEphemeral(event, "I'm already in a voice channel in this server.")
-	}
-
-	channel, ok := userVoiceChannel(event.Client(), guild, event.User().ID)
-	if !ok {
-		return replyEphemeral(event, "You need to be in a voice channel first.")
 	}
 
 	if err := event.DeferCreateMessage(true); err != nil {
@@ -63,7 +47,13 @@ func handleJoin(_ discord.SlashCommandInteractionData, event *handler.CommandEve
 	// goroutine, so blocking here would stop the VoiceStateUpdate and
 	// VoiceServerUpdate that Open is waiting on from ever being read -- the bot
 	// appears in the channel but the handshake never completes.
-	go connectVoice(context.WithoutCancel(event.Ctx), event, guild, channel)
+	go func() {
+		if err := joinCaller(context.WithoutCancel(event.Ctx), event.Client(), guild, event.User().ID); err != nil {
+			editResponse(event, err.Error())
+			return
+		}
+		editResponse(event, "Joined.")
+	}()
 
 	return nil
 }
@@ -74,39 +64,37 @@ func handleLeave(_ discord.SlashCommandInteractionData, event *handler.CommandEv
 		return replyEphemeral(event, "This command only works in a server.")
 	}
 
-	botChannel, ok := botVoiceChannel(event.Client(), guild)
-	if !ok {
-		return replyEphemeral(event, "I'm not in a voice channel.")
+	if err := leaveVoice(event.Ctx, event.Client(), guild, event.User().ID); err != nil {
+		return replyEphemeral(event, err.Error())
 	}
-
-	userChannel, ok := userVoiceChannel(event.Client(), guild, event.User().ID)
-	if !ok || userChannel != botChannel {
-		return replyEphemeral(event, "You need to be in my voice channel to use this.")
-	}
-
-	conn := event.Client().VoiceManager.GetConn(guild)
-	if conn == nil {
-		if err := event.Client().UpdateVoiceState(event.Ctx, guild, nil, false, false); err != nil {
-			return err
-		}
-		removePlayer(guild)
-		return replyEphemeral(event, "Left.")
-	}
-
-	conn.Close(event.Ctx)
-
-	// Drop the queue after closing the connection, so the audio sender has
-	// stopped before its reader is closed.
-	removePlayer(guild)
 
 	return replyEphemeral(event, "Left.")
 }
 
-func connectVoice(ctx context.Context, event *handler.CommandEvent, guild, channel snowflake.ID) {
+// joinCaller puts the bot in user's voice channel. It blocks on the handshake,
+// so it must not run on the gateway goroutine (see handleJoin). The error,
+// when there is one, is worded for whoever asked.
+func joinCaller(ctx context.Context, client *bot.Client, guild snowflake.ID, user snowflake.ID) error {
+	if _, ok := botVoiceChannel(client, guild); ok {
+		return errors.New("I'm already in a voice channel in this server.")
+	}
+
+	channel, ok := userVoiceChannel(client, guild, user)
+	if !ok {
+		return errors.New("You need to be in a voice channel first.")
+	}
+
+	_, err := joinVoice(ctx, client, guild, channel)
+	return err
+}
+
+// joinVoice connects the bot to channel and returns the connection. The real
+// error is logged; the one returned is worded for whoever asked.
+func joinVoice(ctx context.Context, client *bot.Client, guild snowflake.ID, channel snowflake.ID) (voice.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, voiceConnectTimeout)
 	defer cancel()
 
-	conn := event.Client().VoiceManager.CreateConn(guild)
+	conn := client.VoiceManager.CreateConn(guild)
 	if err := conn.Open(ctx, channel, false, false); err != nil {
 		slog.Error("opening voice connection",
 			slog.String("guild_id", guild.String()),
@@ -115,10 +103,80 @@ func connectVoice(ctx context.Context, event *handler.CommandEvent, guild, chann
 		)
 		// CreateConn registered the conn before Open ran; drop the dead entry so a
 		// later attempt builds a fresh one instead of reusing this.
-		event.Client().VoiceManager.RemoveConn(guild)
-		editResponse(event, "Couldn't join that channel.")
-		return
+		client.VoiceManager.RemoveConn(guild)
+		return nil, errors.New("Couldn't join that channel.")
 	}
 
-	editResponse(event, "Joined.")
+	return conn, nil
+}
+
+// leaveVoice disconnects the bot from voice in guild, if user is in there with
+// it. The error, when there is one, is worded for whoever asked.
+func leaveVoice(ctx context.Context, client *bot.Client, guild snowflake.ID, user snowflake.ID) error {
+	botChannel, ok := botVoiceChannel(client, guild)
+	if !ok {
+		return errors.New("I'm not in a voice channel.")
+	}
+
+	userChannel, ok := userVoiceChannel(client, guild, user)
+	if !ok || userChannel != botChannel {
+		return errors.New("You need to be in my voice channel to use this.")
+	}
+
+	return disconnectVoice(ctx, client, guild)
+}
+
+// disconnectVoice closes the guild's voice connection and drops its queue.
+func disconnectVoice(ctx context.Context, client *bot.Client, guild snowflake.ID) error {
+	conn := client.VoiceManager.GetConn(guild)
+	if conn == nil {
+		if err := client.UpdateVoiceState(ctx, guild, nil, false, false); err != nil {
+			return err
+		}
+		removePlayer(guild)
+		return nil
+	}
+
+	conn.Close(ctx)
+
+	// Drop the queue after closing the connection, so the audio sender has
+	// stopped before its reader is closed.
+	removePlayer(guild)
+	return nil
+}
+
+// voiceTarget decides what a playback request needs: the caller's channel, and
+// whether the bot still has to join it. It only reads the cache, so it is safe
+// on the gateway goroutine; the join itself is not.
+func voiceTarget(client *bot.Client, guild snowflake.ID, user snowflake.ID) (channel snowflake.ID, join bool, err error) {
+	userChannel, ok := userVoiceChannel(client, guild, user)
+	if !ok {
+		return 0, false, errors.New("you must be connected to a voice channel to do this.")
+	}
+
+	botChannel, inVoice := botVoiceChannel(client, guild)
+	if inVoice && botChannel != userChannel {
+		return 0, false, errors.New("you must be in the same channel as the bot to do this.")
+	}
+
+	return userChannel, !inVoice, nil
+}
+
+// ensureVoice returns the bot's voice connection in guild, joining user's
+// channel first when it has none. It may block on the handshake.
+func ensureVoice(ctx context.Context, client *bot.Client, guild snowflake.ID, user snowflake.ID) (voice.Conn, error) {
+	channel, join, err := voiceTarget(client, guild, user)
+	if err != nil {
+		return nil, err
+	}
+
+	if join {
+		return joinVoice(ctx, client, guild, channel)
+	}
+
+	conn := client.VoiceManager.GetConn(guild)
+	if conn == nil || conn.ChannelID() == nil {
+		return nil, errors.New("I've lost my voice connection -- try /leave then /join.")
+	}
+	return conn, nil
 }
