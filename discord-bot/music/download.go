@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,7 +42,105 @@ func EnsureYtdlp(ctx context.Context) error {
 		slog.String("version", resolved.Version),
 		slog.Bool("downloaded", resolved.Downloaded),
 	)
+
+	return ensureJSRuntime(ctx)
+}
+
+// bunVersion is the newest bun release the pinned yt-dlp accepts. yt-dlp
+// refuses to vouch for anything newer, and in practice YouTube answers a
+// too-new runtime with 403s rather than audio, so this is a hard requirement
+// and not a warning to ignore. It moves when the go-ytdlp dependency moves:
+// check what yt-dlp names as the last supported version at that point.
+const bunVersion = "1.3.14"
+
+// ensureJSRuntime installs bun, the JavaScript runtime yt-dlp needs to solve
+// YouTube's player challenges. Without one, extraction is deprecated and
+// degraded -- formats go missing, and anything needing a signature fails.
+//
+// yt-dlp only auto-detects deno, but go-ytdlp passes --js-runtimes bun for
+// every command once this resolves, and prepends its cache directory to
+// yt-dlp's PATH so the download is found. That cache is a named volume, so this
+// costs a download on first boot and nothing afterwards.
+func ensureJSRuntime(ctx context.Context) error {
+	url, err := bunDownloadURL()
+	if err != nil {
+		return err
+	}
+
+	if err := dropStaleBun(ctx); err != nil {
+		return err
+	}
+
+	// DisableSystem keeps a bun that happens to be on PATH from shadowing the
+	// pinned one, whose version is the whole point.
+	resolved, err := ytdlp.InstallBun(ctx, &ytdlp.InstallBunOptions{
+		DownloadURL:   url,
+		DisableSystem: true,
+	})
+	if err != nil {
+		return fmt.Errorf("installing bun: %w", err)
+	}
+
+	slog.Info("js runtime ready",
+		slog.String("path", resolved.Executable),
+		slog.String("version", bunVersion),
+		slog.Bool("downloaded", resolved.Downloaded),
+	)
 	return nil
+}
+
+// dropStaleBun deletes a cached bun left over from a different pin, so the
+// install that follows fetches the version we asked for.
+//
+// This has to happen first: go-ytdlp takes whatever binary is already in its
+// cache without checking the version, and memoizes that decision for the life
+// of the process.
+func dropStaleBun(ctx context.Context) error {
+	cacheDir, err := ytdlp.GetCacheDir()
+	if err != nil {
+		return fmt.Errorf("locating yt-dlp cache: %w", err)
+	}
+
+	path := filepath.Join(cacheDir, "bun")
+	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	if err != nil {
+		// Nothing cached, or nothing runnable. Either way the install handles it.
+		return nil //nolint:nilerr
+	}
+
+	version := strings.TrimSpace(string(out))
+	if version == bunVersion {
+		return nil
+	}
+
+	slog.Info("replacing cached js runtime",
+		slog.String("have", version),
+		slog.String("want", bunVersion),
+	)
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("removing stale bun %s: %w", version, err)
+	}
+	return nil
+}
+
+// bunDownloadURL is the release asset for bunVersion on this platform. Only the
+// architectures the bot is built for are listed: go-ytdlp would happily fetch
+// bun for others, but only at whatever version is newest.
+func bunDownloadURL() (string, error) {
+	var asset string
+	switch runtime.GOOS + "_" + runtime.GOARCH {
+	case "linux_amd64":
+		asset = "bun-linux-x64"
+	case "linux_arm64":
+		asset = "bun-linux-aarch64"
+	default:
+		return "", fmt.Errorf("no pinned bun build for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	return fmt.Sprintf(
+		"https://github.com/oven-sh/bun/releases/download/bun-v%s/%s.zip",
+		bunVersion, asset,
+	), nil
 }
 
 // Download is a cached audio file plus the metadata that came with it.
