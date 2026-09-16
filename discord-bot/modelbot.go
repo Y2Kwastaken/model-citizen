@@ -18,10 +18,10 @@ import (
 
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/agent"
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/music"
-	"github.com/Y2Kwastaken/model-citizen/llm"
+	"github.com/Y2Kwastaken/model-citizen/llm/model"
 )
 
-func Start(ctx context.Context, llm llm.BrainClient, tokenVariable string) (*bot.Client, error) {
+func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string) (*bot.Client, error) {
 	slog.Info("disgo version", slog.String("version", disgo.Version))
 
 	token := os.Getenv(tokenVariable)
@@ -60,7 +60,7 @@ func Start(ctx context.Context, llm llm.BrainClient, tokenVariable string) (*bot
 		}),
 		bot.WithEventListenerFunc(handleVoiceLeaveEvent),
 		bot.WithEventListenerFunc(func(e *events.GuildMessageCreate) {
-			agent.HandleMessage(llm, e)
+			agent.HandleMessage(brain, e)
 		}),
 	)
 
@@ -68,7 +68,7 @@ func Start(ctx context.Context, llm llm.BrainClient, tokenVariable string) (*bot
 		return nil, fmt.Errorf("building disgo client: %w", err)
 	}
 
-	registerTools(client, llm)
+	registerTools(client, brain)
 
 	if err = client.OpenGateway(ctx); err != nil {
 		client.Close(ctx)

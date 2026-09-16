@@ -1,7 +1,8 @@
-package llm
+package model
 
 import (
 	"context"
+	"log/slog"
 	"maps"
 	"slices"
 
@@ -10,18 +11,14 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 )
 
-// Origin is where a message came from: the room, and who the model is
-// answering.
 type Origin struct {
 	Guild   snowflake.ID
 	Channel snowflake.ID
 	Caller  snowflake.ID
 }
 
-// Invocation is one tool call the model made, and where it came from.
 type Invocation struct {
 	Origin
-	// the arguments as the model wrote them: json, usually valid
 	Arguments string
 }
 
@@ -36,6 +33,7 @@ type ModelTools interface {
 	Build() []openai.ChatCompletionToolUnionParam
 	Register(tool Tool)
 	Lookup(name string) (Tool, bool)
+	CallTool(ctx context.Context, function openai.ChatCompletionMessageFunctionToolCallFunction, origin Origin) string
 }
 
 type modelToolProvider struct {
@@ -63,4 +61,22 @@ func (provider *modelToolProvider) Register(tool Tool) {
 func (provider *modelToolProvider) Lookup(name string) (Tool, bool) {
 	tool, ok := provider.byName[name]
 	return tool, ok
+}
+
+func (provider *modelToolProvider) CallTool(ctx context.Context, function openai.ChatCompletionMessageFunctionToolCallFunction, origin Origin) string {
+	name := function.Name
+	tool, ok := provider.Lookup(name)
+	if !ok {
+		slog.Warn("model called a tool that does not exist", slog.String("tool", name))
+		return "there is no tool called " + name
+	}
+
+	slog.Info("running tool",
+		slog.String("tool", name),
+		slog.String("arguments", function.Arguments),
+		slog.String("guild_id", origin.Guild.String()),
+	)
+
+	result := tool.Handle(ctx, Invocation{Origin: origin, Arguments: function.Arguments})
+	return result
 }

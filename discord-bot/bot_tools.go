@@ -10,10 +10,10 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/music"
-	"github.com/Y2Kwastaken/model-citizen/llm"
+	"github.com/Y2Kwastaken/model-citizen/llm/model"
 )
 
-func registerTools(client *bot.Client, brain llm.BrainClient) {
+func registerTools(client *bot.Client, brain model.LanguageModel) {
 	tools := brain.Tools()
 	tools.Register(playSong(client))
 	tools.Register(skipSong(client))
@@ -22,8 +22,8 @@ func registerTools(client *bot.Client, brain llm.BrainClient) {
 	tools.Register(leaveVoiceTool(client))
 }
 
-func playSong(client *bot.Client) llm.Tool {
-	return llm.Tool{
+func playSong(client *bot.Client) model.Tool {
+	return model.Tool{
 		Definition: shared.FunctionDefinitionParam{
 			Name:        "play",
 			Description: openai.String("queue a song and start playback, joining the caller's voice channel first if not already in one"),
@@ -35,7 +35,7 @@ func playSong(client *bot.Client) llm.Tool {
 				"required": []string{"song"},
 			},
 		},
-		Handle: func(ctx context.Context, call llm.Invocation) string {
+		Handle: func(ctx context.Context, call model.Invocation) string {
 			var args struct {
 				Song string `json:"song"`
 			}
@@ -67,13 +67,13 @@ func playSong(client *bot.Client) llm.Tool {
 }
 
 // skipSong is /skip for the model. It takes no arguments.
-func skipSong(client *bot.Client) llm.Tool {
-	return llm.Tool{
+func skipSong(client *bot.Client) model.Tool {
+	return model.Tool{
 		Definition: shared.FunctionDefinitionParam{
 			Name:        "skip",
 			Description: openai.String("skip the song currently playing in the voice channel"),
 		},
-		Handle: func(_ context.Context, call llm.Invocation) string {
+		Handle: func(_ context.Context, call model.Invocation) string {
 			song, err := skipCurrent(client, call.Guild, call.Caller)
 			if err != nil {
 				return err.Error()
@@ -84,13 +84,13 @@ func skipSong(client *bot.Client) llm.Tool {
 }
 
 // rewindSong is /rewind for the model. It takes no arguments.
-func rewindSong(client *bot.Client) llm.Tool {
-	return llm.Tool{
+func rewindSong(client *bot.Client) model.Tool {
+	return model.Tool{
 		Definition: shared.FunctionDefinitionParam{
 			Name:        "rewind",
 			Description: openai.String("restart the song currently playing from the beginning"),
 		},
-		Handle: func(_ context.Context, call llm.Invocation) string {
+		Handle: func(_ context.Context, call model.Invocation) string {
 			song, err := rewindCurrent(client, call.Guild, call.Caller)
 			if err != nil {
 				return err.Error()
@@ -101,13 +101,13 @@ func rewindSong(client *bot.Client) llm.Tool {
 }
 
 // joinVoiceTool is /join for the model. It takes no arguments.
-func joinVoiceTool(client *bot.Client) llm.Tool {
-	return llm.Tool{
+func joinVoiceTool(client *bot.Client) model.Tool {
+	return model.Tool{
 		Definition: shared.FunctionDefinitionParam{
 			Name:        "join",
 			Description: openai.String("join the voice channel the caller is in"),
 		},
-		Handle: func(ctx context.Context, call llm.Invocation) string {
+		Handle: func(ctx context.Context, call model.Invocation) string {
 			if err := joinCaller(ctx, client, call.Guild, call.Caller); err != nil {
 				return err.Error()
 			}
@@ -117,13 +117,13 @@ func joinVoiceTool(client *bot.Client) llm.Tool {
 }
 
 // leaveVoiceTool is /leave for the model. It takes no arguments.
-func leaveVoiceTool(client *bot.Client) llm.Tool {
-	return llm.Tool{
+func leaveVoiceTool(client *bot.Client) model.Tool {
+	return model.Tool{
 		Definition: shared.FunctionDefinitionParam{
 			Name:        "leave",
 			Description: openai.String("leave the voice channel, dropping the queue"),
 		},
-		Handle: func(ctx context.Context, call llm.Invocation) string {
+		Handle: func(ctx context.Context, call model.Invocation) string {
 			if err := leaveVoice(ctx, client, call.Guild, call.Caller); err != nil {
 				return err.Error()
 			}

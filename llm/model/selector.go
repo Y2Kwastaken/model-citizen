@@ -1,4 +1,4 @@
-package llm
+package model
 
 import (
 	"encoding/json/v2"
@@ -13,30 +13,28 @@ import (
 )
 
 const (
+	// a verdict, and the deadline a single request is given
 	kill_threshold   = 10 * time.Second
 	reward_threshold = 2 * time.Second
 	punish_threshold = 5 * time.Second
 
 	skip_score = 10
 
-	// A benched model comes back up for selection after this long. An endpoint
-	// being down is nearly always temporary, and without parole one bad minute
-	// costs us that model for the life of the process.
+	// an endpoint being down is nearly always temporary, so a bench expires
 	parole_period = 5 * time.Minute
 )
 
 type ModelManager interface {
 	// Model reports the model requests should be sent to right now.
 	Model() Model
-	// Judge records how long a *completed* request took on model, and swaps
-	// away from it once it has been slow often enough to earn it.
+	// Judge records how long a completed request took, and swaps away from a
+	// model once it has been slow often enough to earn it.
 	Judge(model Model, latency time.Duration)
 	// Fail benches a model whose request errored outright and swaps off it.
 	Fail(model Model, err error)
 	// Rotate forces a swap to the next model.
 	Rotate()
-	// Count reports how many models are in the rotation, which is how many
-	// failover attempts a single request is worth.
+	// Count is how many failover attempts one request is worth.
 	Count() int
 }
 
@@ -47,13 +45,13 @@ type ModelProvider struct {
 }
 
 type Model struct {
-	client openai.Client
-	name   string
-	score  int
+	Client openai.Client
+	Name   string
+	// position in the provider's slice
+	Index int
+	score int
 	// time since out of rotation
 	benched time.Time
-	// position in the provider's slice
-	index int
 }
 
 type jsonModel struct {
@@ -62,9 +60,9 @@ type jsonModel struct {
 	AuthKey string `json:"auth_key"`
 }
 
-// newModelManager builds the rotation from modelsFile, falling back to the
+// NewModelManager builds the rotation from modelsFile, falling back to the
 // single model named by the environment when the file is missing or unusable.
-func newModelManager(modelsFile string, modelAuthKey string, modelNameKey string, modelLinkKey string) (ModelManager, error) {
+func NewModelManager(modelsFile string, modelAuthKey string, modelNameKey string, modelLinkKey string) (ModelManager, error) {
 	dataModels, err := readModelsFile(modelsFile)
 	if err != nil {
 		slog.Warn("falling back to the single model in the environment",
@@ -106,12 +104,9 @@ func readModelsFile(modelsFile string) ([]jsonModel, error) {
 	return models, nil
 }
 
-// newModelProvider resolves each model's auth_key against the environment and
-// builds a client per model. Keys stay internal to this package: the roster
-// names variables, this is the only place their values are read.
-//
-// A model whose key is not set is dropped rather than fatal, so the roster can
-// list a service ahead of having credentials for it.
+// newModelProvider resolves each auth_key against the environment and builds a
+// client per model. A model whose key is unset is dropped rather than fatal, so
+// the roster can list a service ahead of having credentials for it.
 func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 	models := make([]Model, 0, len(dataModels))
 	for _, modelData := range dataModels {
@@ -125,14 +120,14 @@ func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 		}
 
 		models = append(models, Model{
-			client: openai.NewClient(
+			Client: openai.NewClient(
 				option.WithBaseURL(modelData.BaseUrl),
 				option.WithAPIKey(authKey),
 				// we have our own retry policy
 				option.WithMaxRetries(0),
 			),
-			name:  modelData.Name,
-			index: len(models),
+			Name:  modelData.Name,
+			Index: len(models),
 		})
 	}
 
@@ -142,7 +137,7 @@ func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 
 	slog.Info("model rotation ready",
 		slog.Int("models", len(models)),
-		slog.String("starting", models[0].name),
+		slog.String("starting", models[0].Name),
 	)
 
 	return &ModelProvider{
@@ -187,7 +182,7 @@ func (provider *ModelProvider) Judge(model Model, latency time.Duration) {
 	provider.lock.Lock()
 	defer provider.lock.Unlock()
 
-	judged := &provider.models[model.index]
+	judged := &provider.models[model.Index]
 	switch {
 	case latency >= kill_threshold:
 		judged.score = skip_score
@@ -203,7 +198,7 @@ func (provider *ModelProvider) Judge(model Model, latency time.Duration) {
 	}
 	judged.benched = time.Now()
 
-	if model.index != provider.selected {
+	if model.Index != provider.selected {
 		return
 	}
 	nextModel(provider)
@@ -213,12 +208,12 @@ func (provider *ModelProvider) Fail(model Model, err error) {
 	provider.lock.Lock()
 	defer provider.lock.Unlock()
 
-	failed := &provider.models[model.index]
+	failed := &provider.models[model.Index]
 	failed.score = skip_score
 	failed.benched = time.Now()
-	slog.Warn("benching model", slog.String("model", failed.name), slog.Any("error", err))
+	slog.Warn("benching model", slog.String("model", failed.Name), slog.Any("error", err))
 
-	if model.index == provider.selected {
+	if model.Index == provider.selected {
 		nextModel(provider)
 	}
 }
@@ -237,7 +232,7 @@ func currentModel(provider *ModelProvider) *Model {
 // around. The caller must hold the write lock.
 func nextModel(provider *ModelProvider) {
 	length := len(provider.models)
-	from := provider.models[provider.selected].name
+	from := provider.models[provider.selected].Name
 	now := time.Now()
 
 	for i := 1; i <= length; i++ {
@@ -249,12 +244,12 @@ func nextModel(provider *ModelProvider) {
 			candidate.score = 0 // paroled, it gets judged fresh from here
 		}
 
-		provider.selected = candidate.index
-		slog.Info("swapping model", slog.String("from", from), slog.String("to", candidate.name))
+		provider.selected = candidate.Index
+		slog.Info("swapping model", slog.String("from", from), slog.String("to", candidate.Name))
 		return
 	}
 
-	// Nothing is healthy and nothing has served its parole. take longest benched
+	// nothing is healthy and nothing has served its parole, take longest benched
 	stalest := 0
 	for i := range provider.models {
 		if provider.models[i].benched.Before(provider.models[stalest].benched) {
@@ -266,6 +261,6 @@ func nextModel(provider *ModelProvider) {
 	provider.selected = stalest
 	slog.Warn("every model is benched, paroling the stalest",
 		slog.String("from", from),
-		slog.String("to", provider.models[stalest].name),
+		slog.String("to", provider.models[stalest].Name),
 	)
 }

@@ -1,11 +1,15 @@
 package llm
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Y2Kwastaken/model-citizen/llm/model"
+)
 
 func TestCleanReply(t *testing.T) {
-	history := []Message{
-		{Who: User, Name: "miles_dev (Miles)", Content: "whats up"},
-		{Who: Self, Name: "modelcitizen", Content: "nothing"},
+	history := []model.Message{
+		{Who: model.User, Name: "miles_dev (Miles)", Content: "whats up"},
+		{Who: model.Self, Name: "modelcitizen", Content: "nothing"},
 	}
 	cases := []struct{ in, want string }{
 		{"lmao no", "lmao no"},

@@ -6,12 +6,14 @@ package llm
 import (
 	"strings"
 	"testing"
+
+	"github.com/Y2Kwastaken/model-citizen/llm/model"
 )
 
-var room = []Message{
-	{Who: User, Name: "kev_99 (kev)", Content: "@modelcitizen is elden ring overrated"},
-	{Who: Self, Name: "modelcitizen (Model Citizen)", Content: "yes"},
-	{Who: User, Name: "sarah.p (sarah)", Content: "@modelcitizen you're a bot, you cant have opinions"},
+var room = []model.Message{
+	{Who: model.User, Name: "kev_99 (kev)", Content: "@modelcitizen is elden ring overrated"},
+	{Who: model.Self, Name: "modelcitizen (Model Citizen)", Content: "yes"},
+	{Who: model.User, Name: "sarah.p (sarah)", Content: "@modelcitizen you're a bot, you cant have opinions"},
 }
 
 func TestUntranscript(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/Y2Kwastaken/model-citizen/llm/model"
 	"github.com/openai/openai-go/v3"
 )
 
@@ -63,7 +64,7 @@ var rejections = []struct {
 // run means it copied one.
 var exampleShingles = func() map[string]bool {
 	set := map[string]bool{}
-	for _, m := range exampleLine.FindAllStringSubmatch(defaultSystemPrompt, -1) {
+	for _, m := range exampleLine.FindAllStringSubmatch(embeddedSystemPrompt, -1) {
 		for _, s := range shingles(m[1]) {
 			set[s] = true
 		}
@@ -86,11 +87,11 @@ func shingles(text string) []string {
 // speakers maps every normalized name in the room to whether it is the bot.
 type speakers map[string]bool
 
-func newSpeakers(history []Message) speakers {
+func newSpeakers(history []model.Message) speakers {
 	set := speakers{}
 	for _, m := range history {
 		for _, key := range nameKeys(m.Name) {
-			set[key] = m.Who == Self
+			set[key] = m.Who == model.Self
 		}
 	}
 	return set
@@ -129,7 +130,7 @@ func (set speakers) tag(line string) (rest string, self, ok bool) {
 // being a chat log: the reply starts at the bot's own tag if there is one,
 // leading lines that just tag the bot go, and it ends at the first line that
 // carries anyone else's tag.
-func untranscript(reply string, history []Message) string {
+func untranscript(reply string, history []model.Message) string {
 	set := newSpeakers(history)
 	lines := strings.Split(strings.TrimSpace(reply), "\n")
 	for i, line := range lines {
@@ -179,7 +180,7 @@ func untranscript(reply string, history []Message) string {
 // stripSelfMentions drops the "@name" people use to get the bot's attention;
 // left in, one reply in ten is the model complaining about being tagged. A
 // message that was only the tag is left alone.
-func stripSelfMentions(content string, history []Message) string {
+func stripSelfMentions(content string, history []model.Message) string {
 	set := newSpeakers(history)
 	fields := strings.Fields(content)
 	kept := fields[:0]
@@ -228,7 +229,7 @@ func clip(reply string, limit int) string {
 
 // cleanReply turns a raw completion into a chat message: scratch work
 // stripped, then the humanize pass.
-func cleanReply(reply string, history []Message) string {
+func cleanReply(reply string, history []model.Message) string {
 	reply = thinkBlock.ReplaceAllString(reply, "")
 	reply = strings.ReplaceAll(reply, "<think>", "")
 	return humanize(reply, history)
@@ -236,7 +237,7 @@ func cleanReply(reply string, history []Message) string {
 
 // humanize is the full pass, in dependency order: transcript noise first, then
 // structure, then the length rules on what is left.
-func humanize(reply string, history []Message) string {
+func humanize(reply string, history []model.Message) string {
 	reply = untranscript(reply, history)
 	reply = typography.Replace(structure.ReplaceAllString(reply, ""))
 	reply = blankLines.ReplaceAllString(reply, "\n")
@@ -252,7 +253,7 @@ type completer func(ctx context.Context, params openai.ChatCompletionNewParams) 
 // asks again with a system nudge saying what went wrong. The last draw is
 // kept either way, and a redraw that fails (the deadline, usually) keeps the
 // draft before it.
-func draw(ctx context.Context, complete completer, params openai.ChatCompletionNewParams, history []Message, completion *openai.ChatCompletion) (string, error) {
+func draw(ctx context.Context, complete completer, params openai.ChatCompletionNewParams, history []model.Message, completion *openai.ChatCompletion) (string, error) {
 	var reply string
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {

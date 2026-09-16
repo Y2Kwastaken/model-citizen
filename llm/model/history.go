@@ -1,4 +1,4 @@
-package llm
+package model
 
 import (
 	"sync"
@@ -23,14 +23,20 @@ type Message struct {
 	Content string
 }
 
+type HistoryProvider interface {
+	InsertMessage(channel snowflake.ID, sender Sender, name string, message string)
+	OrderedHistory(channel snowflake.ID) []Message
+	Empty(channel snowflake.ID) bool
+}
+
 // A culmination of chat history sorted by channel id
-type ChatHistory struct {
+type chatHistoryProvider struct {
 	lock      sync.RWMutex
-	byChannel map[snowflake.ID]*ChannelHistory
+	byChannel map[snowflake.ID]*channelHistory
 }
 
 // a history within a given channel
-type ChannelHistory struct {
+type channelHistory struct {
 	lock     sync.Mutex
 	head     int
 	tail     int
@@ -39,18 +45,12 @@ type ChannelHistory struct {
 	messages []Message
 }
 
-type HistoryProvider interface {
-	InsertMessage(channel snowflake.ID, sender Sender, name string, message string)
-	OrderedHistory(channel snowflake.ID) []Message
-	Empty(channel snowflake.ID) bool
+func NewChatHistory() HistoryProvider {
+	return &chatHistoryProvider{byChannel: make(map[snowflake.ID]*channelHistory)}
 }
 
-func NewChatHistory() *ChatHistory {
-	return &ChatHistory{byChannel: make(map[snowflake.ID]*ChannelHistory)}
-}
-
-func newChannelHistory() *ChannelHistory {
-	return &ChannelHistory{
+func newChannelHistory() *channelHistory {
+	return &channelHistory{
 		head:     0,
 		tail:     0,
 		empty:    true,
@@ -59,7 +59,7 @@ func newChannelHistory() *ChannelHistory {
 	}
 }
 
-func (provider *ChatHistory) InsertMessage(channel snowflake.ID, sender Sender, name string, message string) {
+func (provider *chatHistoryProvider) InsertMessage(channel snowflake.ID, sender Sender, name string, message string) {
 	provider.lock.RLock()
 	history, ok := provider.byChannel[channel]
 	provider.lock.RUnlock()
@@ -89,7 +89,7 @@ func (provider *ChatHistory) InsertMessage(channel snowflake.ID, sender Sender, 
 	history.empty = false
 }
 
-func (provider *ChatHistory) OrderedHistory(channel snowflake.ID) []Message {
+func (provider *chatHistoryProvider) OrderedHistory(channel snowflake.ID) []Message {
 	provider.lock.RLock()
 	history, ok := provider.byChannel[channel]
 	provider.lock.RUnlock()
@@ -118,7 +118,7 @@ func (provider *ChatHistory) OrderedHistory(channel snowflake.ID) []Message {
 	return ordered
 }
 
-func (provider *ChatHistory) Empty(channel snowflake.ID) bool {
+func (provider *chatHistoryProvider) Empty(channel snowflake.ID) bool {
 	provider.lock.RLock()
 	history, ok := provider.byChannel[channel]
 	if !ok {

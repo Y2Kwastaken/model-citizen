@@ -31,13 +31,13 @@ func main() {
 		modelFile = defaultModelFile
 	}
 
-	llm, err := llm.NewBrainClient(modelFile, MODEL_AUTH_KEY, MODEL_NAME_KEY, MODEL_LINK_KEY)
+	brain, err := llm.NewBrainLanguageModel(modelFile, MODEL_AUTH_KEY, MODEL_NAME_KEY, MODEL_LINK_KEY)
 	if err != nil {
 		slog.Error("error while starting llm connector", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	client, err := discordbot.Start(ctx, llm, DISCORD_KEY)
+	client, err := discordbot.Start(ctx, brain, DISCORD_KEY)
 
 	if err != nil {
 		slog.Error("error while starting discord bot", slog.Any("err", err))

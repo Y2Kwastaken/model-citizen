@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Y2Kwastaken/model-citizen/llm"
+	"github.com/Y2Kwastaken/model-citizen/llm/model"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -16,7 +16,7 @@ import (
 
 var mentionPattern = regexp.MustCompile(`<@[!&]?\d+>`)
 
-func HandleMessage(brain llm.BrainClient, event *events.GuildMessageCreate) {
+func HandleMessage(brain model.LanguageModel, event *events.GuildMessageCreate) {
 	message := event.Message
 
 	appendHistory(brain, message, event.Client().ID())
@@ -24,14 +24,14 @@ func HandleMessage(brain llm.BrainClient, event *events.GuildMessageCreate) {
 		return
 	}
 
-	go respond(event.Client(), brain, llm.Origin{
+	go respond(event.Client(), brain, model.Origin{
 		Guild:   event.GuildID,
 		Channel: message.ChannelID,
 		Caller:  message.Author.ID,
 	}, event.MessageID)
 }
 
-func respond(client *bot.Client, brain llm.BrainClient, origin llm.Origin, messageID snowflake.ID) {
+func respond(client *bot.Client, brain model.LanguageModel, origin model.Origin, messageID snowflake.ID) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	channel := origin.Channel
@@ -74,13 +74,13 @@ func respond(client *bot.Client, brain llm.BrainClient, origin llm.Origin, messa
 
 }
 
-func appendHistory(brain llm.BrainClient, message discord.Message, selfID snowflake.ID) {
+func appendHistory(brain model.LanguageModel, message discord.Message, selfID snowflake.ID) {
 	author := message.Author
-	var sender llm.Sender
+	var sender model.Sender
 	if author.Bot && selfID == message.Author.ID {
-		sender = llm.Self
+		sender = model.Self
 	} else {
-		sender = llm.User
+		sender = model.User
 	}
 
 	// the model has no use for "<@1234567890>", but it does care who was addressed

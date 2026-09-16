@@ -1,4 +1,4 @@
-package llm
+package model
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 func testProvider(names ...string) *ModelProvider {
 	models := make([]Model, 0, len(names))
 	for i, name := range names {
-		models = append(models, Model{name: name, index: i})
+		models = append(models, Model{Name: name, Index: i})
 	}
 	return &ModelProvider{models: models}
 }
@@ -65,19 +65,19 @@ func TestFailRotatesOffTheDeadModel(t *testing.T) {
 	provider := testProvider("one", "two", "three")
 
 	provider.Fail(provider.Model(), errors.New("connection refused"))
-	if got := provider.Model().name; got != "two" {
+	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("after failing one, selected = %s, want two", got)
 	}
 
 	provider.Fail(provider.Model(), errors.New("connection refused"))
-	if got := provider.Model().name; got != "three" {
+	if got := provider.Model().Name; got != "three" {
 		t.Fatalf("after failing two, selected = %s, want three", got)
 	}
 
 	// everything is benched now, so the stalest gets paroled instead of the bot
 	// hammering the model it just gave up on
 	provider.Fail(provider.Model(), errors.New("connection refused"))
-	if got := provider.Model().name; got != "one" {
+	if got := provider.Model().Name; got != "one" {
 		t.Fatalf("all benched, selected = %s, want the stalest (one)", got)
 	}
 }
@@ -88,13 +88,13 @@ func TestJudgeSwapsOnceSlownessAddsUp(t *testing.T) {
 	// punish_threshold costs 2 a call, so it takes five before the swap
 	for i := range 4 {
 		provider.Judge(provider.Model(), punish_threshold)
-		if got := provider.Model().name; got != "one" {
+		if got := provider.Model().Name; got != "one" {
 			t.Fatalf("swapped after %d slow calls, too early", i+1)
 		}
 	}
 
 	provider.Judge(provider.Model(), punish_threshold)
-	if got := provider.Model().name; got != "two" {
+	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two once one crossed the skip score", got)
 	}
 }
@@ -102,7 +102,7 @@ func TestJudgeSwapsOnceSlownessAddsUp(t *testing.T) {
 func TestJudgeKillsOutrightPastTheKillThreshold(t *testing.T) {
 	provider := testProvider("one", "two")
 	provider.Judge(provider.Model(), kill_threshold)
-	if got := provider.Model().name; got != "two" {
+	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two", got)
 	}
 	if score := provider.models[0].score; score < skip_score {
@@ -128,7 +128,7 @@ func TestStaleVerdictDoesNotMoveTheRotation(t *testing.T) {
 	provider.Rotate()
 
 	provider.Judge(stale, kill_threshold)
-	if got := provider.Model().name; got != "two" {
+	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two: a late verdict for one should not rotate again", got)
 	}
 	if score := provider.models[0].score; score < skip_score {
@@ -140,7 +140,7 @@ func TestParoleBringsABenchedModelBack(t *testing.T) {
 	provider := testProvider("one", "two")
 
 	provider.Fail(provider.Model(), errors.New("down"))
-	if got := provider.Model().name; got != "two" {
+	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two", got)
 	}
 
@@ -148,7 +148,7 @@ func TestParoleBringsABenchedModelBack(t *testing.T) {
 	provider.models[0].benched = time.Now().Add(-parole_period - time.Second)
 	provider.Rotate()
 
-	if got := provider.Model().name; got != "one" {
+	if got := provider.Model().Name; got != "one" {
 		t.Fatalf("selected = %s, want one back after parole", got)
 	}
 	if score := provider.models[0].score; score != 0 {
@@ -184,7 +184,7 @@ func TestProviderSkipsModelsWithNoKey(t *testing.T) {
 	}
 	// the survivor has to be re-indexed, or Judge would attribute verdicts to
 	// the wrong slot
-	if provider.Count() != 1 || provider.models[0].name != "b/two" || provider.models[0].index != 0 {
+	if provider.Count() != 1 || provider.models[0].Name != "b/two" || provider.models[0].Index != 0 {
 		t.Fatalf("got %d models, first = %+v", provider.Count(), provider.models[0])
 	}
 }
