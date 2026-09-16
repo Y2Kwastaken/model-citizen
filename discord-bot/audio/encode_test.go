@@ -1,4 +1,4 @@
-package music
+package audio
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 
 // silentPCM returns n frames worth of s16le silence.
 func silentPCM(frames int) io.Reader {
-	return bytes.NewReader(make([]byte, bytes_per_frame*frames))
+	return bytes.NewReader(make([]byte, FrameBytes*frames))
 }
 
 // TestDoneFiresOnlyAfterDrain is the load-bearing guarantee of the buffered
@@ -19,7 +19,7 @@ func silentPCM(frames int) io.Reader {
 func TestDoneFiresOnlyAfterDrain(t *testing.T) {
 	const frames = 7
 
-	reader, err := NewFriendlyOpusReader(silentPCM(frames), nil)
+	reader, err := NewOpusStream(silentPCM(frames), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestDoneFiresOnlyAfterDrain(t *testing.T) {
 // TestProvideAfterEndStaysQuiet covers disgo polling every 20ms forever after a
 // track ends: those polls must report a clean EOF, not a closed-pipe error.
 func TestProvideAfterEndStaysQuiet(t *testing.T) {
-	reader, err := NewFriendlyOpusReader(silentPCM(2), nil)
+	reader, err := NewOpusStream(silentPCM(2), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestProvideAfterEndStaysQuiet(t *testing.T) {
 // producer parked on a full buffer.
 func TestCloseUnblocksProducer(t *testing.T) {
 	// Far more frames than the buffer holds, so the producer parks on send.
-	reader, err := NewFriendlyOpusReader(silentPCM(bufferedFrames*2), nil)
+	reader, err := NewOpusStream(silentPCM(bufferedFrames*2), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestCloseUnblocksProducer(t *testing.T) {
 // than prefillFrames must not wait out prefillTimeout.
 func TestPrefillDoesNotStallShortTracks(t *testing.T) {
 	start := time.Now()
-	reader, err := NewFriendlyOpusReader(silentPCM(3), nil)
+	reader, err := NewOpusStream(silentPCM(3), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

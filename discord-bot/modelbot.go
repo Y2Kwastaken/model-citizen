@@ -33,7 +33,7 @@ func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string)
 		return nil, err
 	}
 
-	router, commands := newRouter()
+	router, commands := newRouter(brain)
 
 	client, err := disgo.New(token,
 		bot.WithGatewayConfigOpts(

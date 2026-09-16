@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/Y2Kwastaken/model-citizen/discord-bot/audio"
 )
 
 // Queue operations for MusicProvider.
@@ -153,7 +155,7 @@ func (provider *MusicProvider) CurrentProgress() (Song, time.Duration, bool) {
 }
 
 // SetReader attaches an opened reader to a Song, closing whatever it replaces.
-func (provider *MusicProvider) SetReader(index int, reader *FriendlyOpusReader) error {
+func (provider *MusicProvider) SetReader(index int, reader *audio.OpusStream) error {
 	provider.lock.Lock()
 	defer provider.lock.Unlock()
 
@@ -225,7 +227,7 @@ func (provider *MusicProvider) at(index int) (Song, bool) {
 }
 
 // closeReader releases a Song's reader, if it has one. Safe to call more than
-// once -- FriendlyOpusReader.Close is guarded by a sync.Once.
+// once -- OpusStream.Close is guarded by a sync.Once.
 func (s *Song) closeReader() {
 	if s.reader != nil {
 		s.reader.Close()

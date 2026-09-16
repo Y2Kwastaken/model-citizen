@@ -1,12 +1,13 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
+	"strings"
 	"time"
 
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
@@ -23,35 +24,77 @@ const (
 	maxToolRounds = 2
 )
 
-type BrainProvider struct {
-	systemPrompt string
-	features     []model.ModelFeature
-	models       model.ModelManager
-	history      model.HistoryProvider
-	tools        model.ModelTools
+// Config is where each rotation comes from. The fallback fields are
+// environment variable names, not values, so deployment config stays in
+// data/.env.
+type Config struct {
+	TextModelsFile  string
+	VoiceModelsFile string
+
+	// a single chat model, used when TextModelsFile is unusable
+	FallbackAuthKey string
+	FallbackNameKey string
+	FallbackLinkKey string
 }
 
-func NewBrainLanguageModel(modelsFile string, modelAuthKey string, modelNameKey string, modelLinkKey string) (model.LanguageModel, error) {
-	models, err := model.NewModelManager(modelsFile, modelAuthKey, modelNameKey, modelLinkKey)
-	if err != nil {
-		return nil, err
+type BrainProvider struct {
+	systemPrompt string
+	// a feature is supported iff it has a rotation
+	rotations map[model.ModelFeature]model.ModelManager
+	history   model.HistoryProvider
+	tools     model.ModelTools
+}
+
+// NewBrainLanguageModel builds a rotation per feature. A rotation that cannot
+// be built drops its feature rather than failing; only a brain with no
+// features at all is an error.
+func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
+	rotations := make(map[model.ModelFeature]model.ModelManager)
+
+	if text, err := textRotation(config); err != nil {
+		slog.Warn("chat disabled", slog.Any("error", err))
+	} else {
+		rotations[model.Chat] = text
 	}
 
-	provider := BrainProvider{
+	if voice, err := model.NewModelManager(config.VoiceModelsFile); err != nil {
+		slog.Warn("transcription disabled", slog.String("file", config.VoiceModelsFile), slog.Any("error", err))
+	} else {
+		rotations[model.STT] = voice
+	}
+
+	if len(rotations) == 0 {
+		return nil, fmt.Errorf("no model rotation could be built")
+	}
+
+	return &BrainProvider{
 		systemPrompt: embeddedSystemPrompt,
-		features:     []model.ModelFeature{model.Chat},
-		models:       models,
+		rotations:    rotations,
 		history:      model.NewChatHistory(),
 		tools:        model.NewModelTools(),
+	}, nil
+}
+
+// textRotation reads the chat roster, falling back to the single model named
+// by the environment when the file is missing or unusable.
+func textRotation(config Config) (model.ModelManager, error) {
+	text, err := model.NewModelManager(config.TextModelsFile)
+	if err == nil {
+		return text, nil
 	}
 
-	return &provider, nil
+	slog.Warn("falling back to the single chat model in the environment",
+		slog.String("file", config.TextModelsFile),
+		slog.Any("error", err),
+	)
+	return model.NewModelManagerFromEnvironment(config.FallbackAuthKey, config.FallbackNameKey, config.FallbackLinkKey)
 }
 
 // Implementation Basic
 
 func (provider *BrainProvider) HasFeature(feature model.ModelFeature) bool {
-	return slices.Contains(provider.features, feature)
+	_, ok := provider.rotations[feature]
+	return ok
 }
 
 func (provider *BrainProvider) Tools() model.ModelTools {
@@ -65,6 +108,10 @@ func (provider *BrainProvider) History() model.HistoryProvider {
 // Implementation Functions
 
 func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (string, error) {
+	if !provider.HasFeature(model.Chat) {
+		return "", fmt.Errorf("this model does not support chatting")
+	}
+
 	history := provider.history
 	channel := origin.Channel
 
@@ -92,6 +139,29 @@ func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (s
 		TopP:            openai.Float(topP),
 		MaxTokens:       openai.Int(maxReplyTokens),
 	}, orderedHistory, origin)
+}
+
+func (provider *BrainProvider) Transcribe(ctx context.Context, clip model.Clip) (string, error) {
+	if !provider.HasFeature(model.STT) {
+		return "", fmt.Errorf("this model does not support transcription")
+	}
+
+	transcription, err := attempt(ctx, provider.rotations[model.STT], func(ctx context.Context, selected model.Model) (*openai.AudioTranscriptionNewResponseUnion, error) {
+		params := openai.AudioTranscriptionNewParams{
+			// a fresh reader per attempt, since a failover re-sends the clip
+			File:  openai.File(bytes.NewReader(clip.Data), "clip."+clip.Format, "audio/"+clip.Format),
+			Model: openai.AudioModel(selected.Name),
+		}
+		if clip.Language != "" {
+			params.Language = openai.String(clip.Language)
+		}
+		return selected.Client.Audio.Transcriptions.New(ctx, params)
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(transcription.Text), nil
 }
 
 func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCompletionNewParams, history []model.Message, origin model.Origin) (string, error) {
@@ -124,56 +194,59 @@ func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCom
 	}
 }
 
-// complete runs one completion against the currently selected model, times it, and hands the verdict to the manager.
 func (provider *BrainProvider) chatOnce(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-	var lastErr error
-	tried := make(map[int]bool, provider.models.Count())
+	return attempt(ctx, provider.rotations[model.Chat], func(ctx context.Context, selected model.Model) (*openai.ChatCompletion, error) {
+		params.Model = selected.Name
+		return selected.Client.Chat.Completions.New(ctx, params)
+	})
+}
 
-	for attempt := range provider.models.Count() {
-		selected := provider.models.Model()
+// attempt runs call against the rotation until a model answers, timing each
+// try and handing the verdict to the manager. A model that errors is benched
+// and the next one tried; the context's own deadline ends the loop early.
+func attempt[T any](ctx context.Context, models model.ModelManager, call func(context.Context, model.Model) (T, error)) (T, error) {
+	var zero T
+	var lastErr error
+	tried := make(map[int]bool, models.Count())
+
+	for try := range models.Count() {
+		selected := models.Model()
 		if tried[selected.Index] {
 			break
 		}
-
 		tried[selected.Index] = true
-		params.Model = selected.Name
 
 		attemptCtx, cancel := context.WithTimeout(ctx, perModelTimeout)
 		start := time.Now()
-		completion, err := selected.Client.Chat.Completions.New(attemptCtx, params)
+		result, err := call(attemptCtx, selected)
 		latency := time.Since(start)
 		cancel()
 
 		if err == nil {
-			// success path
-			provider.models.Judge(selected, latency)
-			return completion, nil
+			models.Judge(selected, latency)
+			return result, nil
 		}
-		// failure path
 
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%s: %w", selected.Name, err)
+			return zero, fmt.Errorf("%s: %w", selected.Name, err)
 		}
 
 		lastErr = fmt.Errorf("%s: %w", selected.Name, err)
 		fields := []any{
 			slog.String("model", selected.Name),
-			slog.Int("attempt", attempt),
+			slog.Int("attempt", try),
 			slog.Duration("latency", latency),
 			slog.Any("error", err),
 		}
-
 		if apiErr, ok := errors.AsType[*openai.Error](err); ok {
 			fields = append(fields, slog.Int("status", apiErr.StatusCode))
 		}
-
 		slog.Warn("model call failed, failing over", fields...)
-		provider.models.Fail(selected, err)
+		models.Fail(selected, err)
 	}
 
 	if lastErr == nil {
-		return nil, fmt.Errorf("no models in rotation")
+		return zero, fmt.Errorf("no models in rotation")
 	}
-
-	return nil, fmt.Errorf("every model failed: %w", lastErr)
+	return zero, fmt.Errorf("every model failed: %w", lastErr)
 }

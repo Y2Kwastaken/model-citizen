@@ -16,12 +16,14 @@ Requires `data/.env` with:
 | `MODEL_AUTH_KEY` | API key for the chat model (NVIDIA NIM `nvapi-...`) |
 | `MODEL_NAME` | Fallback model id, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | `MODEL_LINK` | Fallback base URL, e.g. `https://integrate.api.nvidia.com/v1` |
-| `MODEL_FILE` | Optional path to the rotation file, defaults to `models.json` |
+| `MODEL_FILE` | Optional path to the text rotation file, defaults to `text-models.json` |
+| `VOICE_MODEL_FILE` | Optional path to the voice rotation file, defaults to `voice-models.json` |
 
 ### Model rotation
 
-The bot cycles through the models in `data/models.json`, which compose mounts
-into the container:
+The bot cycles through the chat models in `data/text-models.json` and the
+transcription models in `data/voice-models.json`, which compose mounts into the
+container. Both share one format:
 
 ```json
 [

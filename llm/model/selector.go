@@ -60,22 +60,22 @@ type jsonModel struct {
 	AuthKey string `json:"auth_key"`
 }
 
-// NewModelManager builds the rotation from modelsFile, falling back to the
-// single model named by the environment when the file is missing or unusable.
-func NewModelManager(modelsFile string, modelAuthKey string, modelNameKey string, modelLinkKey string) (ModelManager, error) {
+// NewModelManager builds a rotation from modelsFile.
+func NewModelManager(modelsFile string) (ModelManager, error) {
 	dataModels, err := readModelsFile(modelsFile)
 	if err != nil {
-		slog.Warn("falling back to the single model in the environment",
-			slog.String("file", modelsFile),
-			slog.Any("error", err),
-		)
-
-		dataModels, err = newJsonModelFromEnvironment(modelAuthKey, modelNameKey, modelLinkKey)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
+	return newModelProvider(dataModels)
+}
 
+// NewModelManagerFromEnvironment builds a one-model rotation from the named
+// environment variables.
+func NewModelManagerFromEnvironment(modelAuthKey string, modelNameKey string, modelLinkKey string) (ModelManager, error) {
+	dataModels, err := newJsonModelFromEnvironment(modelAuthKey, modelNameKey, modelLinkKey)
+	if err != nil {
+		return nil, err
+	}
 	return newModelProvider(dataModels)
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/Y2Kwastaken/model-citizen/discord-bot/audio"
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/music"
 )
 
@@ -239,7 +240,7 @@ func playbackLabel(song music.Song) string {
 //
 // This blocks on the download, so it must not run on the gateway event
 // goroutine. See handleJoin for why.
-func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProvider) (music.Song, *music.FriendlyOpusReader, error) {
+func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProvider) (music.Song, *audio.OpusStream, error) {
 	downloader, err := getDownloader()
 	if err != nil {
 		return music.Song{}, nil, err
@@ -252,7 +253,7 @@ func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProv
 	}
 
 	// Spawns ffmpeg and wraps its PCM output in an opus encoder.
-	reader, err := music.TranslateFile(song.File)
+	reader, err := audio.StreamFile(song.File)
 	if err != nil {
 		return music.Song{}, nil, err
 	}
@@ -280,7 +281,7 @@ func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProv
 // silence past the end of a stream -- so this waits on the reader's Done
 // channel instead. Done also fires when a reader is closed by /leave or a
 // queue clear, which is how this goroutine learns to exit.
-func advanceOnFinish(conn voice.Conn, player *music.MusicProvider, reader *music.FriendlyOpusReader, guild snowflake.ID) {
+func advanceOnFinish(conn voice.Conn, player *music.MusicProvider, reader *audio.OpusStream, guild snowflake.ID) {
 	for {
 		<-reader.Done()
 
@@ -303,7 +304,7 @@ func advanceOnFinish(conn voice.Conn, player *music.MusicProvider, reader *music
 
 // advanceToPlayable steps past the finished song and starts the first later one
 // that plays, reporting false when the queue runs out.
-func advanceToPlayable(conn voice.Conn, player *music.MusicProvider, guild snowflake.ID) (*music.FriendlyOpusReader, bool) {
+func advanceToPlayable(conn voice.Conn, player *music.MusicProvider, guild snowflake.ID) (*audio.OpusStream, bool) {
 	for {
 		if _, ok := player.Complete(); !ok {
 			return nil, false

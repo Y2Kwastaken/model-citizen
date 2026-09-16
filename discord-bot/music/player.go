@@ -1,10 +1,10 @@
 package music
 
 import (
-	"os"
-	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/Y2Kwastaken/model-citizen/discord-bot/audio"
 )
 
 type MusicPlayer interface {
@@ -24,7 +24,7 @@ type Song struct {
 	File     string
 	Duration time.Duration
 
-	reader *FriendlyOpusReader
+	reader *audio.OpusStream
 }
 
 type MusicProvider struct {
@@ -34,37 +34,4 @@ type MusicProvider struct {
 	queuePosition  int
 	maxQueueLength int
 	cacheRetention int
-}
-
-type commandCloser struct {
-	command *exec.Cmd
-}
-
-func (c *commandCloser) Close() error {
-	_ = c.command.Process.Kill()
-	return c.command.Wait()
-}
-
-func TranslateFile(path string) (*FriendlyOpusReader, error) {
-	command := exec.Command("ffmpeg", "-i", path,
-		"-f", "s16le",
-		"-ar", "48000",
-		"-ac", "2",
-		"-loglevel", "error",
-		"pipe:1",
-	)
-
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	command.Stderr = os.Stderr
-
-	err = command.Start()
-
-	if err != nil {
-		return nil, err
-	}
-
-	return NewFriendlyOpusReader(stdout, &commandCloser{command: command})
 }

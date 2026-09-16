@@ -3,9 +3,11 @@ services:
     build: .
     volumes:
       - music-provider:/music
-      # The model rotation. data/ is not in the image, so it is mounted rather
-      # than baked in: adding or dropping a model is a restart, not a rebuild.
-      - ./data/models.json:/app/models.json:ro
+      # The model rotations. data/ is not in the image, so they are mounted
+      # rather than baked in: adding or dropping a model is a restart, not a
+      # rebuild.
+      - ./data/text-models.json:/app/text-models.json:ro
+      - ./data/voice-models.json:/app/voice-models.json:ro
       # go-ytdlp caches its binaries under os.UserCacheDir (/root/.cache here).
       # Persist it or every restart re-downloads yt-dlp and bun.
       - ytdlp-cache:/root/.cache

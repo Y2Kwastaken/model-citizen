@@ -1,8 +1,7 @@
-package music
+package audio
 
 import (
 	"bufio"
-	"encoding/binary"
 	"errors"
 	"io"
 	"sync"
@@ -13,12 +12,8 @@ import (
 )
 
 const (
-	bytes_per_frame   = 3840
-	samples_per_frame = 960
-	channels          = 2
-	sample_rate       = 48000
-	max_encoded_frame = 1400
-	bitrate           = 96000
+	maxEncodedFrame = 1400
+	bitrate         = 96000
 
 	// bufferedFrames is how far ahead encoding may run, in 20ms frames.
 	// 250 frames is 5 seconds, roughly 60KB of encoded audio per playing track.
@@ -35,13 +30,13 @@ const (
 	prefillTimeout = 10 * time.Second
 )
 
-// FriendlyOpusReader converts a PCM stream into the opus frames disgo sends.
+// OpusStream converts s16le PCM into the opus frames disgo sends.
 //
 // Reading and encoding happen on their own goroutine, feeding a buffered
 // channel. ProvideOpusFrame only receives from that channel, so disgo's 20ms
 // deadline is never spent on pipe I/O or opus encoding -- the two things whose
 // latency we do not control.
-type FriendlyOpusReader struct {
+type OpusStream struct {
 	closer io.Closer
 	once   sync.Once
 
@@ -66,16 +61,16 @@ type FriendlyOpusReader struct {
 	finished chan struct{}
 }
 
-func NewFriendlyOpusReader(src io.Reader, closer io.Closer) (*FriendlyOpusReader, error) {
+func NewOpusStream(src io.Reader, closer io.Closer) (*OpusStream, error) {
 	// The encoder is stateful -- opus predicts across frames, so one encoder
 	// must serve every frame of the stream.
-	encoder, err := gopus.NewEncoder(sample_rate, channels, gopus.Audio)
+	encoder, err := gopus.NewEncoder(SampleRate, Channels, gopus.Audio)
 	if err != nil {
 		return nil, err
 	}
 	encoder.SetBitrate(bitrate)
 
-	reader := &FriendlyOpusReader{
+	reader := &OpusStream{
 		closer:   closer,
 		encoder:  encoder,
 		frames:   make(chan []byte, bufferedFrames),
@@ -101,19 +96,19 @@ func NewFriendlyOpusReader(src io.Reader, closer io.Closer) (*FriendlyOpusReader
 // rather than wall clock is what makes this exact: if the producer stalls,
 // ProvideOpusFrame blocks and the sender stalls with it, so a clock would
 // drift where the frame count does not.
-func (reader *FriendlyOpusReader) Elapsed() time.Duration {
-	return time.Duration(reader.sent.Load()) * 20 * time.Millisecond
+func (reader *OpusStream) Elapsed() time.Duration {
+	return time.Duration(reader.sent.Load()) * FrameLength
 }
 
 // produce reads PCM, encodes it, and buffers the result until the source ends
 // or Close cancels it.
-func (reader *FriendlyOpusReader) produce(src io.Reader) {
+func (reader *OpusStream) produce(src io.Reader) {
 	defer close(reader.frames)
 	defer reader.markPrimed()
 
 	buffer := bufio.NewReader(src)
-	var frame [bytes_per_frame]byte
-	pcm := make([]int16, samples_per_frame*channels)
+	var frame [FrameBytes]byte
+	pcm := make([]int16, FrameSize*Channels)
 	produced := 0
 
 	for {
@@ -131,15 +126,11 @@ func (reader *FriendlyOpusReader) produce(src io.Reader) {
 			return
 		}
 
-		// s16le bytes -> interleaved samples. Converting uint16 to int16 keeps
-		// the bit pattern, which is what signed 16-bit little endian already is.
-		for i := range pcm {
-			pcm[i] = int16(binary.LittleEndian.Uint16(frame[i*2:]))
-		}
+		PCMFromBytes(frame[:], pcm)
 
 		// Encode allocates a fresh slice per call, so buffered frames never
 		// alias each other.
-		encoded, err := reader.encoder.Encode(pcm, samples_per_frame, max_encoded_frame)
+		encoded, err := reader.encoder.Encode(pcm, FrameSize, maxEncodedFrame)
 		if err != nil {
 			reader.err = err
 			return
@@ -162,7 +153,7 @@ func (reader *FriendlyOpusReader) produce(src io.Reader) {
 //
 // It blocks if the producer has fallen behind: a brief pause is better than
 // returning nothing, which makes disgo emit silence and drop the speaking flag.
-func (reader *FriendlyOpusReader) ProvideOpusFrame() ([]byte, error) {
+func (reader *OpusStream) ProvideOpusFrame() ([]byte, error) {
 	if reader.done {
 		return nil, io.EOF
 	}
@@ -188,7 +179,7 @@ func (reader *FriendlyOpusReader) ProvideOpusFrame() ([]byte, error) {
 // Close releases the underlying resource and stops the producer. It is safe to
 // call repeatedly, which matters because the audio sender keeps polling long
 // after the stream ends.
-func (reader *FriendlyOpusReader) Close() {
+func (reader *OpusStream) Close() {
 	reader.once.Do(func() {
 		// Unblock a producer parked on a full buffer, then kill the source it
 		// is reading, which unblocks one parked in ReadFull.
@@ -206,10 +197,10 @@ func (reader *FriendlyOpusReader) Close() {
 // disgo never reports that a track finished -- its sender just keeps polling
 // and sending silence -- so this is how a caller learns to move on. It fires
 // for an external Close too, so a stop or skip wakes the same waiter.
-func (reader *FriendlyOpusReader) Done() <-chan struct{} {
+func (reader *OpusStream) Done() <-chan struct{} {
 	return reader.finished
 }
 
-func (reader *FriendlyOpusReader) markPrimed() {
+func (reader *OpusStream) markPrimed() {
 	reader.primedOnce.Do(func() { close(reader.primed) })
 }
