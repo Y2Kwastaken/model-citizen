@@ -1,0 +1,4 @@
+# corpora, clones, generated clips and checkpoints; the trained .onnx is kept
+data/
+.venv/
+__pycache__/

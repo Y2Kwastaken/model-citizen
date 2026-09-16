@@ -1,0 +1,64 @@
+# openWakeWord training config for the bot's wake phrase.
+# Consumed by data/openwakeword/openwakeword/train.py; see train.sh.
+# Paths are relative to this directory.
+
+model_name: "hey_model"
+
+target_phrase:
+  - "hey model"
+
+# Phrases the model must stay quiet on. train.py also generates its own
+# adversarial negatives from phoneme overlap; these are the ones a Discord
+# call actually produces.
+custom_negative_phrases:
+  - "hey mom"
+  - "hey modem"
+  - "the model"
+  - "a model"
+  - "hey metal"
+  - "hey mortal"
+
+# 20k is the recommended floor, 100k+ is best. 30k generates in well under an
+# hour on a 3060; raise it if false negatives are the problem.
+n_samples: 30000
+n_samples_val: 3000
+
+tts_batch_size: 50
+augmentation_batch_size: 16
+# each generated clip is augmented this many times with fresh noise and reverb
+augmentation_rounds: 2
+
+piper_sample_generator_path: "./data/piper-sample-generator"
+output_dir: "./data/hey_model"
+
+rir_paths:
+  - "./data/mit_rirs"
+
+# Discord calls are speech over music and room noise, so both.
+background_paths:
+  - "./data/audioset_16k"
+  - "./data/fma"
+background_paths_duplication_rate:
+  - 1
+  - 1
+
+false_positive_validation_data_path: "./data/validation_set_features.npy"
+
+feature_data_files:
+  "ACAV100M_sample": "./data/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+
+batch_n_per_class:
+  "ACAV100M_sample": 1024
+  "adversarial_negative": 50
+  "positive": 50
+
+model_type: "dnn"
+layer_size: 32
+
+steps: 50000
+# Upstream's defaults are 1500 and 0.2. The auto-trainer doubles the negative
+# weight after every sequence that misses the false-positive target, and with
+# those values it doubled twice and merged a model with 40% recall. These
+# leave headroom; the runtime threshold takes the rest.
+max_negative_weight: 500
+target_false_positives_per_hour: 0.5
