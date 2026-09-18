@@ -28,6 +28,11 @@ fi
 # --convert_to_tflite defaults to the string "False", which is truthy, so the
 # tflite conversion (and its TensorFlow dependency) always ran
 sed -i 's/default="False"/default=False/' data/openwakeword/openwakeword/train.py
+# adversarial negatives are built per word from CMUdict; punctuation in a
+# target phrase ("hey... model") makes a word it cannot look up and the
+# sampling step fails, so strip it there
+sed -i 's/input_text=target_phrase,/input_text=re.sub(r"[^\\w\\s]", "", target_phrase),/' data/openwakeword/openwakeword/train.py
+grep -q '^import re$' data/openwakeword/openwakeword/train.py || sed -i 's/^import argparse$/import argparse\nimport re/' data/openwakeword/openwakeword/train.py
 
 # The training half of openwakeword's [full] extra, minus the TensorFlow stack
 # that only serves --convert_to_tflite. PyPI torch wheels bundle CUDA.
@@ -47,6 +52,10 @@ uv pip install \
     scipy tqdm \
     "setuptools<81"  # pkg_resources, dropped in 81, for the pinned torchmetrics
 uv pip install -e data/openwakeword
+# deep-phonemizer's checkpoint is a full pickle too; openwakeword downloads it
+# from its own release to generate adversarial negatives
+sed -i 's/torch.load(checkpoint_path, map_location=device)$/torch.load(checkpoint_path, map_location=device, weights_only=False)/' \
+    .venv/lib/python3.10/site-packages/dp/model/model.py
 
 # The frozen front end every openwakeword model sits on. train.py looks for
 # these inside the package.

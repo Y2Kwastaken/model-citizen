@@ -13,8 +13,11 @@ model is ignored by git.
 | `setup.sh` | Python 3.10 venv via `uv`, the two upstream repos, the frozen front-end models |
 | `fetch_data.sh` | the corpora (~20 GB, resumable) |
 | `prepare_data.py` | converts them to the 16 kHz wavs training mixes in |
-| `train.sh` | generate, augment, train; copies out `hey_model.onnx` |
+| `train.sh` | generate, clip onsets, augment, train; copies out `hey_model.onnx` |
+| `clip_onsets.py` | adds copies of positives with the first 40–160 ms cut, as voice-activity gating delivers them |
+| `score.py` | scores any recordings against the model the way the bot does |
 | `hey_model.onnx` | the result, loaded by the bot |
+| `melspectrogram.onnx`, `embedding_model.onnx` | upstream's frozen front end, which every head sits on |
 
 ## Running it
 
@@ -41,8 +44,22 @@ held-out set is met.
 - **Triggers on noise generally**: lower `target_false_positives_per_hour`, or
   raise `max_negative_weight`.
 
-The score threshold and debounce are runtime settings on the Go side, not
-training ones; tune those first, they're free.
+The score threshold and debounce are runtime settings on the Go side
+(`discord-bot/listen.go`), not training ones; tune those first, they're free.
+
+## Running the Go tests
+
+`discord-bot/audio` checks its detector against scores recorded from the
+Python implementation (`testdata/`). That needs `libonnxruntime.so` from the
+release the Go binding targets (1.29.x), found via `ONNXRUNTIME_LIB` or an
+unpacked release under `wakeword/data/`:
+
+```
+cd wakeword/data
+curl -fsSL https://github.com/microsoft/onnxruntime/releases/download/v1.29.1/onnxruntime-linux-x64-1.29.1.tgz | tar -xz
+```
+
+Without it those tests skip.
 
 ## Why these pins
 

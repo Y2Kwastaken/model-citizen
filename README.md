@@ -18,6 +18,9 @@ Requires `data/.env` with:
 | `MODEL_LINK` | Fallback base URL, e.g. `https://integrate.api.nvidia.com/v1` |
 | `MODEL_FILE` | Optional path to the text rotation file, defaults to `text-models.json` |
 | `VOICE_MODEL_FILE` | Optional path to the voice rotation file, defaults to `voice-models.json` |
+| `ONNXRUNTIME_LIB` | Optional path to `libonnxruntime.so`, defaults to where the image installs it |
+| `WAKE_DIR` | Optional directory holding the wake word models, defaults to `wakeword` |
+| `WAKE_THRESHOLD` | Optional score (0–1) that counts as the wake word, defaults to `0.2` |
 
 ### Model rotation
 

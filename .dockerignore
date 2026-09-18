@@ -1,2 +1,4 @@
 .git
 data
+wakeword/data
+wakeword/.venv

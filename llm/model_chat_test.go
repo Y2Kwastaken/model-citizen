@@ -22,6 +22,7 @@ func TestCleanReply(t *testing.T) {
 		{"`modelcitizen: not much, you`</think>normies trying to figure it out", "normies trying to figure it out"},
 		{"<think>\nlet me think\n</think>\nlmao no", "lmao no"},
 		{"<think>lmao no", "lmao no"},
+		{"[12:04:31] nah", "nah"},
 	}
 	for _, c := range cases {
 		if got := cleanReply(c.in, history); got != c.want {

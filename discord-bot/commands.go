@@ -60,11 +60,11 @@ func commandTable(brain model.LanguageModel) []Command {
 		{
 			Create: discord.SlashCommandCreate{
 				Name:        "transcribe",
-				Description: "records you for a few seconds and reads back what the model heard",
+				Description: "reads back what was said in the voice channel recently",
 				Options: []discord.ApplicationCommandOption{
 					discord.ApplicationCommandOptionInt{
 						Name:        "seconds",
-						Description: "how long to record for (default 8, max 30)",
+						Description: "how far back to go (default 10, max 30)",
 						Required:    false,
 					},
 				},

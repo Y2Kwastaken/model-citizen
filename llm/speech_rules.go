@@ -229,9 +229,14 @@ func clip(reply string, limit int) string {
 
 // cleanReply turns a raw completion into a chat message: scratch work
 // stripped, then the humanize pass.
+// spokenAt is the timestamp voice lines carry into the history; the model
+// sometimes hands one back.
+var spokenAt = regexp.MustCompile(`^\s*\[\d{2}:\d{2}:\d{2}\]\s*`)
+
 func cleanReply(reply string, history []model.Message) string {
 	reply = thinkBlock.ReplaceAllString(reply, "")
 	reply = strings.ReplaceAll(reply, "<think>", "")
+	reply = spokenAt.ReplaceAllString(reply, "")
 	return humanize(reply, history)
 }
 
@@ -272,12 +277,18 @@ func draw(ctx context.Context, complete completer, params openai.ChatCompletionN
 		if nudge == "" || attempt >= maxRetries {
 			return reply, nil
 		}
-		slog.Debug("redrawing reply", slog.Int("attempt", attempt), slog.String("draft", reply), slog.String("nudge", nudge))
+		// a redraw is another full round trip, so it is worth seeing
+		slog.Info("redrawing reply", slog.Int("attempt", attempt), slog.String("draft", reply), slog.String("nudge", nudge))
 		params.Messages = append(params.Messages, openai.SystemMessage(nudge))
 	}
 }
 
 // judge returns the system nudge to redraw with, or "" if the reply is fine.
+// denied is a fault being refused, not admitted: "not sorry", "never wrong".
+// The rejection patterns match the bare words, so these come out first or a
+// reply that is standing its ground gets redrawn for doing exactly that.
+var denied = regexp.MustCompile(`(?i)\b(?:not|never|ain'?t|isn'?t|wasn'?t)\s+(?:even\s+|really\s+|definitely\s+|fucking\s+)?(?:sorry|wrong|apologi[sz]ing|my bad)\b`)
+
 func judge(reply string) string {
 	if strings.TrimSpace(reply) == "" {
 		return "your last draft was empty. say something."
@@ -287,8 +298,9 @@ func judge(reply string) string {
 			return "your last draft reused an example line. those are tone, not a script. say something new, in your own words, about what they actually said."
 		}
 	}
+	judged := denied.ReplaceAllString(reply, "")
 	for _, r := range rejections {
-		if r.re.MatchString(reply) {
+		if r.re.MatchString(judged) {
 			return r.nudge
 		}
 	}

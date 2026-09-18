@@ -17,12 +17,22 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/agent"
+	"github.com/Y2Kwastaken/model-citizen/discord-bot/audio"
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/music"
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
 )
 
-func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string) (*bot.Client, error) {
+// Listening is how the bot hears voice. A nil Wake still listens, for
+// /transcribe, but nothing wakes the brain.
+type Listening struct {
+	Wake      *audio.WakeWord
+	Threshold float32 // score that counts as the wake word
+}
+
+// Start connects the bot.
+func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string, listening Listening) (*bot.Client, error) {
 	slog.Info("disgo version", slog.String("version", disgo.Version))
+	ears.brain, ears.wake, ears.threshold = brain, listening.Wake, listening.Threshold
 
 	token := os.Getenv(tokenVariable)
 	if token == "" {
@@ -50,6 +60,8 @@ func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string)
 		// discord requires libdave as vc is e2ee
 		bot.WithVoiceManagerConfigOpts(
 			voice.WithDaveSessionCreateFunc(golibdave.NewSession),
+			// see dave.go: the silence tails DAVE cannot decrypt stop here
+			voice.WithConnConfigOpts(voice.WithUDPConnCreateFunc(newQuietUDP)),
 		),
 		bot.WithEventListeners(router),
 		bot.WithEventListenerFunc(func(e *events.GuildReady) {

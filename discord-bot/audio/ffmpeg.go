@@ -1,8 +1,6 @@
 package audio
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -52,28 +50,4 @@ func StreamFile(path string) (*OpusStream, error) {
 		return nil, err
 	}
 	return NewOpusStream(pcm, pcm)
-}
-
-// EncodeFLAC compresses mono PCM at SampleRate into a FLAC file resampled to
-// rate. FLAC because it streams: ffmpeg cannot backfill a WAV header on a
-// pipe, and the transcription endpoints take either.
-func EncodeFLAC(pcm []int16, rate int) ([]byte, error) {
-	command := exec.Command("ffmpeg",
-		"-f", "s16le",
-		"-ar", strconv.Itoa(SampleRate),
-		"-ac", "1",
-		"-i", "pipe:0",
-		"-ar", strconv.Itoa(rate),
-		"-f", "flac",
-		"-loglevel", "error",
-		"pipe:1",
-	)
-	command.Stdin = bytes.NewReader(PCMToBytes(pcm))
-	command.Stderr = os.Stderr
-
-	flac, err := command.Output()
-	if err != nil {
-		return nil, fmt.Errorf("encoding flac: %w", err)
-	}
-	return flac, nil
 }

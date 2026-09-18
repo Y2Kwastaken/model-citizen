@@ -4,8 +4,13 @@
 
 model_name: "hey_model"
 
+# People call the bot the way they call a person: "hey" ... "model", with a
+# pause. Piper runs the plain phrase together; the ellipsis is what makes it
+# leave a gap (a comma barely does), so both are trained.
 target_phrase:
   - "hey model"
+  - "hey, model"
+  - "hey... model"
 
 # Phrases the model must stay quiet on. train.py also generates its own
 # adversarial negatives from phoneme overlap; these are the ones a Discord
@@ -18,10 +23,10 @@ custom_negative_phrases:
   - "hey metal"
   - "hey mortal"
 
-# 20k is the recommended floor, 100k+ is best. 30k generates in well under an
-# hour on a 3060; raise it if false negatives are the problem.
-n_samples: 30000
-n_samples_val: 3000
+# 20k is the recommended floor, 100k+ is best. Spread across the three
+# phrasings; 60k generates in about an hour on a 3060.
+n_samples: 60000
+n_samples_val: 6000
 
 tts_batch_size: 50
 augmentation_batch_size: 16
@@ -59,6 +64,8 @@ steps: 50000
 # Upstream's defaults are 1500 and 0.2. The auto-trainer doubles the negative
 # weight after every sequence that misses the false-positive target, and with
 # those values it doubled twice and merged a model with 40% recall. These
-# leave headroom; the runtime threshold takes the rest.
-max_negative_weight: 500
-target_false_positives_per_hour: 0.5
+# still double twice but from a lower start, and the result measured 0.0
+# false positives per hour at a 0.5 threshold anyway; the runtime threshold
+# takes the rest.
+max_negative_weight: 300
+target_false_positives_per_hour: 1.0

@@ -39,7 +39,22 @@ RUN set -eux; \
         > /usr/local/lib/pkgconfig/dave.pc; \
     ldconfig
 
-# Sample track for /play. data/ is otherwise ignored (it holds .env).
+# onnxruntime, for the wake word. The Go binding is compiled against one C
+# API version, so this must be the release go.mod's onnxruntime_go expects.
+ARG ONNXRUNTIME_VERSION=1.29.1
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64) arch="x64" ;; \
+        aarch64|arm64) arch="aarch64" ;; \
+        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/onnxruntime.tgz \
+        "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-${arch}-${ONNXRUNTIME_VERSION}.tgz"; \
+    tar -xzf /tmp/onnxruntime.tgz -C /tmp; \
+    cp "/tmp/onnxruntime-linux-${arch}-${ONNXRUNTIME_VERSION}"/lib/libonnxruntime.so* /usr/local/lib/; \
+    rm -rf /tmp/onnxruntime.tgz /tmp/onnxruntime-linux-*; \
+    ldconfig
+
 COPY go.mod go.sum ./
 
 RUN go mod download

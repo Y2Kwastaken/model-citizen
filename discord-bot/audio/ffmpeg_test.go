@@ -1,32 +1,31 @@
 package audio
 
 import (
-	"bytes"
 	"math"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestEncodeFLACProducesAFile(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not on PATH")
-	}
-
+func TestEncodeWAVIsReadableAndResampled(t *testing.T) {
 	// a second of tone, mono at SampleRate
 	pcm := make([]int16, SampleRate)
 	for i := range pcm {
 		pcm[i] = int16(8000 * math.Sin(2*math.Pi*440*float64(i)/SampleRate))
 	}
-
-	flac, err := EncodeFLAC(pcm, 16000)
-	if err != nil {
+	path := filepath.Join(t.TempDir(), "tone.wav")
+	if err := os.WriteFile(path, EncodeWAV(pcm), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.HasPrefix(flac, []byte("fLaC")) {
-		t.Fatalf("output does not start with the flac marker: % x", flac[:min(8, len(flac))])
+	back := readWAV(t, path)
+	if len(back) != WakeRate {
+		t.Fatalf("%d samples back, want %d: a second at 16kHz", len(back), WakeRate)
 	}
-	// 16kHz mono s16 is 32kB/s raw; a tone compresses well below that
-	if len(flac) == 0 || len(flac) > 2*SampleRate {
-		t.Fatalf("flac is %d bytes, want something between a header and the raw size", len(flac))
+	var peak int16
+	for _, s := range back[100:] {
+		peak = max(peak, s)
+	}
+	if peak < 7500 {
+		t.Fatalf("tone peaked at %d after the round trip, want ~8000", peak)
 	}
 }

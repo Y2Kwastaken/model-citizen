@@ -85,6 +85,9 @@ func TestJudge(t *testing.T) {
 	}
 	good := []string{
 		"google is wrong then. wouldnt be the first time",
+		// refusing to apologise is the brand, not an admission
+		"i'm not stopping. i'm not sorry. and i'm definitely not wrong.",
+		"never sorry, never wrong, and you know it",
 		"i have opinions on everything. what i dont have is a filter",
 		"lakers. dont @ me.",
 	}

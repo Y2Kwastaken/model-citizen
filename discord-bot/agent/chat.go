@@ -59,7 +59,7 @@ func respond(client *bot.Client, brain model.LanguageModel, origin model.Origin,
 	}
 
 	_, err = client.Rest.CreateMessage(channel, discord.NewMessageCreate().
-		WithContent(truncate(reply, 2000)).
+		WithContent(Truncate(reply, 2000)).
 		WithMessageReferenceByID(messageID).
 		WithAllowedMentions(&discord.AllowedMentions{
 			Parse:       []discord.AllowedMentionType{},
@@ -146,7 +146,8 @@ func inlineMentions(message discord.Message) string {
 	return strings.Join(strings.Fields(content), " ")
 }
 
-func truncate(content string, limit int) string {
+// Truncate cuts content to Discord's message limit.
+func Truncate(content string, limit int) string {
 	runes := []rune(content)
 	if len(runes) <= limit {
 		return content

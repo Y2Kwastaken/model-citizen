@@ -10,6 +10,8 @@ TRAIN=data/openwakeword/openwakeword/train.py
 CONFIG=hey_model.yaml
 
 python "$TRAIN" --training_config "$CONFIG" --generate_clips
+# the front of the phrase is often lost to transmit gating; see clip_onsets.py
+python clip_onsets.py
 python "$TRAIN" --training_config "$CONFIG" --augment_clips
 python "$TRAIN" --training_config "$CONFIG" --train_model
 
