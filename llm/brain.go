@@ -28,8 +28,9 @@ const (
 // environment variable names, not values, so deployment config stays in
 // data/.env.
 type Config struct {
-	TextModelsFile  string
-	VoiceModelsFile string
+	TextModelsFile   string
+	VoiceModelsFile  string
+	SpeechModelsFile string
 
 	// a single chat model, used when TextModelsFile is unusable
 	FallbackAuthKey string
@@ -57,10 +58,16 @@ func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 		rotations[model.Chat] = text
 	}
 
-	if voice, err := model.NewModelManager(config.VoiceModelsFile); err != nil {
+	if voice, err := model.NewModelManager(config.VoiceModelsFile, model.STT); err != nil {
 		slog.Warn("transcription disabled", slog.String("file", config.VoiceModelsFile), slog.Any("error", err))
 	} else {
 		rotations[model.STT] = voice
+	}
+
+	if speech, err := model.NewModelManager(config.SpeechModelsFile, model.TTS); err != nil {
+		slog.Warn("speech disabled", slog.String("file", config.SpeechModelsFile), slog.Any("error", err))
+	} else {
+		rotations[model.TTS] = speech
 	}
 
 	if len(rotations) == 0 {
@@ -78,7 +85,7 @@ func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 // textRotation reads the chat roster, falling back to the single model named
 // by the environment when the file is missing or unusable.
 func textRotation(config Config) (model.ModelManager, error) {
-	text, err := model.NewModelManager(config.TextModelsFile)
+	text, err := model.NewModelManager(config.TextModelsFile, model.Chat)
 	if err == nil {
 		return text, nil
 	}
@@ -172,6 +179,19 @@ func (provider *BrainProvider) Transcribe(ctx context.Context, clip model.Clip) 
 	}
 
 	return strings.TrimSpace(text), nil
+}
+
+// Speak reads text out. Which voice answers is the rotation's business, but a
+// voice is the bot's whole character to whoever is listening, so a roster with
+// more than one entry should read as an outage plan rather than a choice.
+func (provider *BrainProvider) Speak(ctx context.Context, text string) (model.Clip, error) {
+	if !provider.HasFeature(model.TTS) {
+		return model.Clip{}, fmt.Errorf("this model does not speak")
+	}
+
+	return attempt(ctx, provider.rotations[model.TTS], func(ctx context.Context, selected model.Model) (model.Clip, error) {
+		return selected.Speak(ctx, text)
+	})
 }
 
 func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCompletionNewParams, history []model.Message, origin model.Origin) (string, error) {

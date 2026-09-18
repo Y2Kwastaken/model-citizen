@@ -14,20 +14,22 @@ import (
 )
 
 const (
-	MODEL_FILE_KEY       = "MODEL_FILE"
-	VOICE_MODEL_FILE_KEY = "VOICE_MODEL_FILE"
-	MODEL_AUTH_KEY       = "MODEL_AUTH_KEY"
-	MODEL_NAME_KEY       = "MODEL_NAME"
-	MODEL_LINK_KEY       = "MODEL_LINK"
-	DISCORD_KEY          = "DISCORD_KEY"
-	ONNXRUNTIME_LIB_KEY  = "ONNXRUNTIME_LIB"
-	WAKE_DIR_KEY         = "WAKE_DIR"
-	WAKE_THRESHOLD_KEY   = "WAKE_THRESHOLD"
+	MODEL_FILE_KEY        = "MODEL_FILE"
+	VOICE_MODEL_FILE_KEY  = "VOICE_MODEL_FILE"
+	SPEECH_MODEL_FILE_KEY = "SPEECH_MODEL_FILE"
+	MODEL_AUTH_KEY        = "MODEL_AUTH_KEY"
+	MODEL_NAME_KEY        = "MODEL_NAME"
+	MODEL_LINK_KEY        = "MODEL_LINK"
+	DISCORD_KEY           = "DISCORD_KEY"
+	ONNXRUNTIME_LIB_KEY   = "ONNXRUNTIME_LIB"
+	WAKE_DIR_KEY          = "WAKE_DIR"
+	WAKE_THRESHOLD_KEY    = "WAKE_THRESHOLD"
 
 	// where the rotations are read from when the *_FILE variables are unset;
 	// the compose file mounts data/*-models.json here
-	defaultModelFile      = "text-models.json"
-	defaultVoiceModelFile = "voice-models.json"
+	defaultModelFile       = "text-models.json"
+	defaultVoiceModelFile  = "voice-models.json"
+	defaultSpeechModelFile = "speech-models.json"
 
 	// the wake word models, and the onnxruntime the Dockerfile installs
 	defaultOnnxruntimeLib = "/usr/local/lib/libonnxruntime.so"
@@ -44,11 +46,12 @@ func main() {
 	ctx := context.Background()
 
 	brain, err := llm.NewBrainLanguageModel(llm.Config{
-		TextModelsFile:  envOr(MODEL_FILE_KEY, defaultModelFile),
-		VoiceModelsFile: envOr(VOICE_MODEL_FILE_KEY, defaultVoiceModelFile),
-		FallbackAuthKey: MODEL_AUTH_KEY,
-		FallbackNameKey: MODEL_NAME_KEY,
-		FallbackLinkKey: MODEL_LINK_KEY,
+		TextModelsFile:   envOr(MODEL_FILE_KEY, defaultModelFile),
+		VoiceModelsFile:  envOr(VOICE_MODEL_FILE_KEY, defaultVoiceModelFile),
+		SpeechModelsFile: envOr(SPEECH_MODEL_FILE_KEY, defaultSpeechModelFile),
+		FallbackAuthKey:  MODEL_AUTH_KEY,
+		FallbackNameKey:  MODEL_NAME_KEY,
+		FallbackLinkKey:  MODEL_LINK_KEY,
 	})
 	if err != nil {
 		slog.Error("error while starting llm connector", slog.Any("err", err))

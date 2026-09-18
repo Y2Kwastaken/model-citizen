@@ -163,7 +163,7 @@ func TestProviderResolvesKeysPerModel(t *testing.T) {
 	provider, err := newModelProvider([]jsonModel{
 		{Name: "a/one", BaseUrl: "https://one.test/v1", AuthKey: "ONE_KEY"},
 		{Name: "b/two", BaseUrl: "https://two.test/v1", AuthKey: "TWO_KEY"},
-	})
+	}, Chat)
 	if err != nil {
 		t.Fatalf("newModelProvider: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestProviderSkipsModelsWithNoKey(t *testing.T) {
 	provider, err := newModelProvider([]jsonModel{
 		{Name: "a/one", BaseUrl: "https://one.test/v1", AuthKey: "MISSING_KEY"},
 		{Name: "b/two", BaseUrl: "https://two.test/v1", AuthKey: "ONE_KEY"},
-	})
+	}, Chat)
 	if err != nil {
 		t.Fatalf("newModelProvider: %v", err)
 	}
@@ -189,10 +189,41 @@ func TestProviderSkipsModelsWithNoKey(t *testing.T) {
 	}
 }
 
+// A service with no key of its own says so outright, so it is not confused
+// with one whose variable is merely missing.
+func TestProviderKeepsKeylessModels(t *testing.T) {
+	t.Setenv("ONE_KEY", "secret-one")
+
+	provider, err := newModelProvider([]jsonModel{
+		{Name: "local/voice", BaseUrl: "/app/voices", AuthKey: noAuthKey},
+		{Name: "a/one", BaseUrl: "https://one.test/v1", AuthKey: "ONE_KEY"},
+		{Name: "b/two", BaseUrl: "https://two.test/v1", AuthKey: "MISSING_KEY"},
+	}, Chat)
+	if err != nil {
+		t.Fatalf("newModelProvider: %v", err)
+	}
+	if provider.Count() != 2 {
+		t.Fatalf("count = %d, want the keyless one and the keyed one", provider.Count())
+	}
+	if provider.models[0].Name != "local/voice" {
+		t.Errorf("first model = %q", provider.models[0].Name)
+	}
+}
+
+// NOP is the only spelling of it -- an unset NOP_KEY is still a missing key.
+func TestProviderStillNeedsRealKeys(t *testing.T) {
+	_, err := newModelProvider([]jsonModel{
+		{Name: "a/one", BaseUrl: "https://one.test/v1", AuthKey: "NOP_KEY"},
+	}, Chat)
+	if err == nil {
+		t.Fatal("want an error when the roster's only key is unset")
+	}
+}
+
 func TestProviderFailsWhenNoKeysAreSet(t *testing.T) {
 	_, err := newModelProvider([]jsonModel{
 		{Name: "a/one", BaseUrl: "https://one.test/v1", AuthKey: "MISSING_KEY"},
-	})
+	}, Chat)
 	if err == nil {
 		t.Fatal("want an error when nothing in the roster is usable")
 	}

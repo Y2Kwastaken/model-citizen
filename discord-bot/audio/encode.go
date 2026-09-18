@@ -15,9 +15,13 @@ const (
 	maxEncodedFrame = 1400
 	bitrate         = 96000
 
-	// bufferedFrames is how far ahead encoding may run, in 20ms frames.
-	// 250 frames is 5 seconds, roughly 60KB of encoded audio per playing track.
-	bufferedFrames = 250
+	// bufferedFrames is how far ahead encoding may run, in 20ms frames, and
+	// so also how late the bot is heard: a line mixed into this stream joins
+	// audio that is already encoded and waiting. 50 frames is one second,
+	// which leaves ffmpeg real slack -- it is reading a file off disk, not a
+	// network -- without the bot answering into a conversation that has moved
+	// on. See TestTheEncoderStaysCloseToPlayback.
+	bufferedFrames = 50
 
 	// prefillFrames is how much must be buffered before playback starts.
 	// Spawning ffmpeg and filling the first pipe read costs ~100ms, which is

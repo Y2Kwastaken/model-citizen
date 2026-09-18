@@ -5,61 +5,34 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"time"
 )
 
-// The api a service speaks, named in the models file. Most of them answer
-// OpenAI's /audio/transcriptions, which the rotation's shared client already
-// handles; the two below are worth the adapter for what their free tiers give.
-const (
-	apiOpenAI     = "openai"
-	apiDeepgram   = "deepgram"
-	apiAssemblyAI = "assemblyai"
-)
-
-const (
-	// an answer is a transcript and some timings, never megabytes
-	maxAnswerBytes = 1 << 20
-	// how often a queued AssemblyAI transcript is checked on
-	pollInterval = 250 * time.Millisecond
-)
+// how often a queued AssemblyAI transcript is checked on
+const pollInterval = 250 * time.Millisecond
 
 // Transcriber turns a clip into text. A service that speaks OpenAI's shape
-// needs none of this, so transcriberFor returns nil for those and the rotation
+// needs none of this, so adaptersFor returns nil for those and the rotation
 // uses its own client.
 type Transcriber func(ctx context.Context, clip Clip) (string, error)
-
-func transcriberFor(api string, baseUrl string, authKey string, name string) (Transcriber, error) {
-	switch api {
-	case "", apiOpenAI:
-		return nil, nil
-	case apiDeepgram:
-		return deepgramTranscriber(baseUrl, authKey, name), nil
-	case apiAssemblyAI:
-		return assemblyAiTranscriber(baseUrl, authKey, name), nil
-	default:
-		return nil, fmt.Errorf("unknown api %q, want %q, %q or %q", api, apiOpenAI, apiDeepgram, apiAssemblyAI)
-	}
-}
 
 // deepgramTranscriber sends the clip as the whole request body and reads the
 // transcript out of the first alternative. Deepgram answers in one round trip,
 // so there is nothing to wait on.
-func deepgramTranscriber(baseUrl string, authKey string, name string) Transcriber {
+func deepgramTranscriber(service service) Transcriber {
 	return func(ctx context.Context, clip Clip) (string, error) {
-		query := url.Values{"model": {name}, "smart_format": {"true"}}
+		query := url.Values{"model": {service.name}, "smart_format": {"true"}}
 		if clip.Language != "" {
 			query.Set("language", clip.Language)
 		}
 
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseUrl+"/v1/listen?"+query.Encode(), bytes.NewReader(clip.Data))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, service.baseUrl+"/v1/listen?"+query.Encode(), bytes.NewReader(clip.Data))
 		if err != nil {
 			return "", err
 		}
-		request.Header.Set("Authorization", "Token "+authKey)
+		request.Header.Set("Authorization", "Token "+service.authKey)
 		request.Header.Set("Content-Type", "audio/"+clip.Format)
 
 		var answer struct {
@@ -86,28 +59,28 @@ func deepgramTranscriber(baseUrl string, authKey string, name string) Transcribe
 // assemblyAiTranscriber uploads the clip, queues it, then waits for it.
 // AssemblyAI has no synchronous endpoint, so the wait is what its free tier
 // costs; the rotation's per-model deadline is what bounds it.
-func assemblyAiTranscriber(baseUrl string, authKey string, name string) Transcriber {
+func assemblyAiTranscriber(service service) Transcriber {
 	return func(ctx context.Context, clip Clip) (string, error) {
-		uploaded, err := assemblyAiUpload(ctx, baseUrl, authKey, clip)
+		uploaded, err := assemblyAiUpload(ctx, service, clip)
 		if err != nil {
 			return "", fmt.Errorf("uploading clip: %w", err)
 		}
 
-		queued, err := assemblyAiQueue(ctx, baseUrl, authKey, name, uploaded, clip.Language)
+		queued, err := assemblyAiQueue(ctx, service, uploaded, clip.Language)
 		if err != nil {
 			return "", fmt.Errorf("queueing clip: %w", err)
 		}
 
-		return assemblyAiAwait(ctx, baseUrl, authKey, queued)
+		return assemblyAiAwait(ctx, service, queued)
 	}
 }
 
-func assemblyAiUpload(ctx context.Context, baseUrl string, authKey string, clip Clip) (string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseUrl+"/v2/upload", bytes.NewReader(clip.Data))
+func assemblyAiUpload(ctx context.Context, service service, clip Clip) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, service.baseUrl+"/v2/upload", bytes.NewReader(clip.Data))
 	if err != nil {
 		return "", err
 	}
-	request.Header.Set("Authorization", authKey)
+	request.Header.Set("Authorization", service.authKey)
 	request.Header.Set("Content-Type", "audio/"+clip.Format)
 
 	var answer struct {
@@ -122,8 +95,8 @@ func assemblyAiUpload(ctx context.Context, baseUrl string, authKey string, clip 
 	return answer.UploadUrl, nil
 }
 
-func assemblyAiQueue(ctx context.Context, baseUrl string, authKey string, name string, uploaded string, language string) (string, error) {
-	wanted := map[string]any{"audio_url": uploaded, "speech_model": name}
+func assemblyAiQueue(ctx context.Context, service service, uploaded string, language string) (string, error) {
+	wanted := map[string]any{"audio_url": uploaded, "speech_model": service.name}
 	if language != "" {
 		wanted["language_code"] = language
 	}
@@ -132,11 +105,11 @@ func assemblyAiQueue(ctx context.Context, baseUrl string, authKey string, name s
 		return "", err
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseUrl+"/v2/transcript", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, service.baseUrl+"/v2/transcript", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
-	request.Header.Set("Authorization", authKey)
+	request.Header.Set("Authorization", service.authKey)
 	request.Header.Set("Content-Type", "application/json")
 
 	var answer struct {
@@ -153,16 +126,16 @@ func assemblyAiQueue(ctx context.Context, baseUrl string, authKey string, name s
 
 // assemblyAiAwait polls the queued transcript until it is done, the service
 // gives up on it, or the context runs out.
-func assemblyAiAwait(ctx context.Context, baseUrl string, authKey string, id string) (string, error) {
+func assemblyAiAwait(ctx context.Context, service service, id string) (string, error) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseUrl+"/v2/transcript/"+id, nil)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, service.baseUrl+"/v2/transcript/"+id, nil)
 		if err != nil {
 			return "", err
 		}
-		request.Header.Set("Authorization", authKey)
+		request.Header.Set("Authorization", service.authKey)
 
 		var answer struct {
 			Status string `json:"status"`
@@ -186,25 +159,4 @@ func assemblyAiAwait(ctx context.Context, baseUrl string, authKey string, id str
 		case <-ticker.C:
 		}
 	}
-}
-
-// send runs the request and decodes its answer, turning any non-2xx into an
-// error so the rotation benches the service rather than reading a body that
-// was never a transcript.
-func send(request *http.Request, answer any) error {
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxAnswerBytes))
-	if err != nil {
-		return err
-	}
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("%s: %s", response.Status, bytes.TrimSpace(body))
-	}
-	return json.Unmarshal(body, answer)
 }

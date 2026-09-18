@@ -8,6 +8,7 @@ services:
       # rebuild.
       - ./data/text-models.json:/app/text-models.json:ro
       - ./data/voice-models.json:/app/voice-models.json:ro
+      - ./data/speech-models.json:/app/speech-models.json:ro
       # Where /transcribe saves what it heard when VOICE_DUMP_DIR is set.
       - ./data/voice-dumps:/app/voice-dumps
       # go-ytdlp caches its binaries under os.UserCacheDir (/root/.cache here).

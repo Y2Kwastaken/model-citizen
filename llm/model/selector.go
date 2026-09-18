@@ -20,6 +20,10 @@ const (
 
 	skip_score = 10
 
+	// What a service that needs no key at all -- one running locally, say --
+	// puts in auth_key, rather than naming a variable that will never be set.
+	noAuthKey = "NOP"
+
 	// an endpoint being down is nearly always temporary, so a bench expires
 	parole_period = 5 * time.Minute
 )
@@ -47,9 +51,10 @@ type ModelProvider struct {
 type Model struct {
 	Client openai.Client
 	Name   string
-	// Transcribe is set only for a service with its own API; nil means the
-	// client above speaks OpenAI's /audio/transcriptions.
+	// Transcribe and Speak are set only for a service with its own API; nil
+	// means the client above speaks OpenAI's shape.
 	Transcribe Transcriber
+	Speak      Speaker
 	// position in the provider's slice
 	Index int
 	score int
@@ -63,15 +68,20 @@ type jsonModel struct {
 	AuthKey string `json:"auth_key"`
 	// Api is the shape the service speaks, defaulting to OpenAI's.
 	Api string `json:"api"`
+	// Voice is which of a speech service's voices to use. Speech is the only
+	// feature where the model and the voice are separate things.
+	Voice string `json:"voice"`
 }
 
-// NewModelManager builds a rotation from modelsFile.
-func NewModelManager(modelsFile string) (ModelManager, error) {
+// NewModelManager builds a rotation from modelsFile for one feature. The
+// feature is what every service in the file is checked against, so a roster
+// that cannot do the job it was listed for fails here.
+func NewModelManager(modelsFile string, feature ModelFeature) (ModelManager, error) {
 	dataModels, err := readModelsFile(modelsFile)
 	if err != nil {
 		return nil, err
 	}
-	return newModelProvider(dataModels)
+	return newModelProvider(dataModels, feature)
 }
 
 // NewModelManagerFromEnvironment builds a one-model rotation from the named
@@ -81,7 +91,7 @@ func NewModelManagerFromEnvironment(modelAuthKey string, modelNameKey string, mo
 	if err != nil {
 		return nil, err
 	}
-	return newModelProvider(dataModels)
+	return newModelProvider(dataModels, Chat)
 }
 
 func readModelsFile(modelsFile string) ([]jsonModel, error) {
@@ -111,20 +121,29 @@ func readModelsFile(modelsFile string) ([]jsonModel, error) {
 
 // newModelProvider resolves each auth_key against the environment and builds a
 // client per model. A model whose key is unset is dropped rather than fatal, so
-// the roster can list a service ahead of having credentials for it.
-func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
+// the roster can list a service ahead of having credentials for it; a model
+// that asks for no key with noAuthKey is kept as it is.
+func newModelProvider(dataModels []jsonModel, feature ModelFeature) (*ModelProvider, error) {
 	models := make([]Model, 0, len(dataModels))
 	for _, modelData := range dataModels {
-		authKey := os.Getenv(modelData.AuthKey)
-		if authKey == "" {
-			slog.Warn("skipping model, its key is not set in the environment",
-				slog.String("model", modelData.Name),
-				slog.String("auth_key", modelData.AuthKey),
-			)
-			continue
+		var authKey string
+		if modelData.AuthKey != noAuthKey {
+			authKey = os.Getenv(modelData.AuthKey)
+			if authKey == "" {
+				slog.Warn("skipping model, its key is not set in the environment",
+					slog.String("model", modelData.Name),
+					slog.String("auth_key", modelData.AuthKey),
+				)
+				continue
+			}
 		}
 
-		transcribe, err := transcriberFor(modelData.Api, modelData.BaseUrl, authKey, modelData.Name)
+		transcribe, speak, err := adaptersFor(feature, modelData.Api, service{
+			baseUrl: modelData.BaseUrl,
+			authKey: authKey,
+			name:    modelData.Name,
+			voice:   modelData.Voice,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("model %s: %w", modelData.Name, err)
 		}
@@ -138,6 +157,7 @@ func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 			),
 			Name:       modelData.Name,
 			Transcribe: transcribe,
+			Speak:      speak,
 			Index:      len(models),
 		})
 	}

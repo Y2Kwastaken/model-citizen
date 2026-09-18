@@ -73,6 +73,20 @@ func commandTable(brain model.LanguageModel) []Command {
 		},
 		{
 			Create: discord.SlashCommandCreate{
+				Name:        "say",
+				Description: "says something out loud in the voice channel",
+				Options: []discord.ApplicationCommandOption{
+					discord.ApplicationCommandOptionString{
+						Name:        "text",
+						Description: "what to say",
+						Required:    true,
+					},
+				},
+			},
+			Handler: sayCommand(brain),
+		},
+		{
+			Create: discord.SlashCommandCreate{
 				Name:        "leave",
 				Description: "leaves the user's current voice call",
 			},

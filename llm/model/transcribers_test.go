@@ -26,7 +26,7 @@ func TestDeepgramTranscriber(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transcribe, err := transcriberFor(apiDeepgram, server.URL, "secret", "nova-3")
+	transcribe, _, err := adaptersFor(STT, apiDeepgram, service{baseUrl: server.URL, authKey: "secret", name: "nova-3"})
 	if err != nil {
 		t.Fatalf("transcriberFor: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestDeepgramTranscriberHeardNothing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transcribe, _ := transcriberFor(apiDeepgram, server.URL, "secret", "nova-3")
+	transcribe, _, _ := adaptersFor(STT, apiDeepgram, service{baseUrl: server.URL, authKey: "secret", name: "nova-3"})
 	text, err := transcribe(t.Context(), testClip)
 	if err != nil || text != "" {
 		t.Fatalf("got %q, %v", text, err)
@@ -99,7 +99,7 @@ func TestAssemblyAiTranscriber(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transcribe, err := transcriberFor(apiAssemblyAI, server.URL, "secret", "universal")
+	transcribe, _, err := adaptersFor(STT, apiAssemblyAI, service{baseUrl: server.URL, authKey: "secret", name: "universal"})
 	if err != nil {
 		t.Fatalf("transcriberFor: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAssemblyAiTranscriberFails(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transcribe, _ := transcriberFor(apiAssemblyAI, server.URL, "secret", "universal")
+	transcribe, _, _ := adaptersFor(STT, apiAssemblyAI, service{baseUrl: server.URL, authKey: "secret", name: "universal"})
 	_, err := transcribe(t.Context(), testClip)
 	if err == nil || !strings.Contains(err.Error(), "audio too short") {
 		t.Fatalf("err = %v", err)
@@ -154,7 +154,7 @@ func TestTranscriberRejectsBadStatus(t *testing.T) {
 	defer server.Close()
 
 	for _, api := range []string{apiDeepgram, apiAssemblyAI} {
-		transcribe, _ := transcriberFor(api, server.URL, "secret", "whatever")
+		transcribe, _, _ := adaptersFor(STT, api, service{baseUrl: server.URL, authKey: "secret", name: "whatever"})
 		if _, err := transcribe(t.Context(), testClip); err == nil {
 			t.Errorf("%s: no error", api)
 		} else if !strings.Contains(err.Error(), "bad credentials") {
@@ -180,21 +180,21 @@ func TestAssemblyAiTranscriberGivesUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 600*time.Millisecond)
 	defer cancel()
 
-	transcribe, _ := transcriberFor(apiAssemblyAI, server.URL, "secret", "universal")
+	transcribe, _, _ := adaptersFor(STT, apiAssemblyAI, service{baseUrl: server.URL, authKey: "secret", name: "universal"})
 	if _, err := transcribe(ctx, testClip); err == nil {
 		t.Fatal("waited forever")
 	}
 }
 
-func TestTranscriberForOpenAiAndUnknown(t *testing.T) {
+func TestAdaptersForOpenAiAndUnknown(t *testing.T) {
 	for _, api := range []string{"", apiOpenAI} {
-		transcribe, err := transcriberFor(api, "https://one.test/v1", "secret", "whisper-1")
+		transcribe, _, err := adaptersFor(STT, api, service{baseUrl: "https://one.test/v1", authKey: "secret", name: "whisper-1"})
 		if err != nil || transcribe != nil {
 			t.Errorf("api %q: got %v, %v, want the rotation's own client", api, transcribe, err)
 		}
 	}
 
-	if _, err := transcriberFor("depgram", "https://one.test", "secret", "nova-3"); err == nil {
+	if _, _, err := adaptersFor(STT, "depgram", service{baseUrl: "https://one.test", authKey: "secret", name: "nova-3"}); err == nil {
 		t.Error("a typo'd api loaded anyway")
 	}
 }
@@ -210,7 +210,7 @@ func TestNewModelProviderAttachesTranscribers(t *testing.T) {
 		t.Fatalf("readModelsFile: %v", err)
 	}
 
-	provider, err := newModelProvider(models)
+	provider, err := newModelProvider(models, STT)
 	if err != nil {
 		t.Fatalf("newModelProvider: %v", err)
 	}

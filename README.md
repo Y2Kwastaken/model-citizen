@@ -18,15 +18,17 @@ Requires `data/.env` with:
 | `MODEL_LINK` | Fallback base URL, e.g. `https://integrate.api.nvidia.com/v1` |
 | `MODEL_FILE` | Optional path to the text rotation file, defaults to `text-models.json` |
 | `VOICE_MODEL_FILE` | Optional path to the voice rotation file, defaults to `voice-models.json` |
+| `SPEECH_MODEL_FILE` | Optional path to the speech rotation file, defaults to `speech-models.json` |
 | `ONNXRUNTIME_LIB` | Optional path to `libonnxruntime.so`, defaults to where the image installs it |
 | `WAKE_DIR` | Optional directory holding the wake word models, defaults to `wakeword` |
 | `WAKE_THRESHOLD` | Optional score (0–1) that counts as the wake word, defaults to `0.2` |
 
 ### Model rotation
 
-The bot cycles through the chat models in `data/text-models.json` and the
-transcription models in `data/voice-models.json`, which compose mounts into the
-container. Both share one format:
+The bot cycles through the chat models in `data/text-models.json`, the
+transcription models in `data/voice-models.json` and the voices in
+`data/speech-models.json`, which compose mounts into the container. All three
+share one format:
 
 ```json
 [
@@ -43,7 +45,10 @@ never the key itself — the roster is committed, `data/.env` is not. Each entry
 resolves its own variable, so pointing a model at a different service is a new
 entry plus a new line in `data/.env`. A model whose variable is unset is logged
 and dropped from the rotation rather than stopping the bot, so you can list a
-service before you have credentials for it.
+service before you have credentials for it. A service that has no key at all,
+one running alongside the bot rather than over the web, says so with
+`"auth_key": "NOP"` and is kept as it is — that way a key which is simply
+missing still looks like a mistake.
 
 Everything is assumed to speak OpenAI's API. The two transcription services
 worth using that do not get an `api` field instead:
@@ -65,10 +70,49 @@ worth using that do not get an `api` field instead:
 ]
 ```
 
-`api` may be `openai` (the default), `deepgram` or `assemblyai`, and `name` is
-whatever that service calls its model. Deepgram answers in one round trip;
+`api` may be `openai` (the default), `mistral`, `deepgram` or `assemblyai`, and
+`name` is whatever that service calls its model. Each roster is loaded for one
+feature and every service in it is checked against that feature, so a voice
+listed among the chat models is an error at startup rather than a request that
+fails later. Teaching the bot another service is an entry in `apis` in
+`llm/model/apis.go` plus the function it names. Deepgram answers in one round trip;
 AssemblyAI queues the clip and is polled until it is done or the model's ten
 seconds are up, so it belongs last in the rotation.
+
+### Speech
+
+`data/speech-models.json` is the bot's voice:
+
+```json
+[
+  {
+    "name": "voxtral-mini-tts-2603",
+    "base_url": "https://api.mistral.ai/v1",
+    "auth_key": "MISTRAL_KEY",
+    "api": "mistral",
+    "voice": "gb_oliver_neutral"
+  }
+]
+```
+
+Speech is the one feature where the model and the voice are separate, which is
+what `voice` is for. `gb_oliver_neutral` is a British man; `GET /v1/audio/voices`
+lists the rest, and `en_paul_*` covers eight moods of the same American. The
+model is pinned rather than `voxtral-mini-tts-latest`, because an alias moves
+and the voice is the bot's whole character to whoever is listening.
+
+Nothing here runs locally. A voice worth listening to wants more compute than
+the box has: kokoro took eight to twelve seconds per line on two cores, against
+`perModelTimeout`'s ten, and piper is fast enough but sounds it.
+
+A rotation fails over, so treat more than one entry here as an outage plan
+rather than a choice -- a swapped voice mid-conversation is worse than a pause.
+
+The bot speaks over music rather than interrupting it. Discord takes one opus
+stream per connection, so `audio.Mixer` sits between ffmpeg and the encoder and
+sums the two, ducking the music while a line plays; with nothing playing the
+same mixer carries the line alone. `/say` is there to try a voice without going
+through the wake word.
 
 Every reply is timed. A fast model works its score down, a slow one works it up,
 and a model that crosses the score or errors outright is benched — the request

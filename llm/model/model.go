@@ -7,6 +7,7 @@ type ModelFeature int
 const (
 	Chat ModelFeature = iota
 	STT
+	TTS
 )
 
 type LanguageModel interface {
@@ -17,4 +18,5 @@ type LanguageModel interface {
 	// functions
 	Chat(ctx context.Context, origin Origin) (string, error)
 	Transcribe(ctx context.Context, clip Clip) (string, error)
+	Speak(ctx context.Context, text string) (Clip, error)
 }

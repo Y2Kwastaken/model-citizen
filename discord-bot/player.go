@@ -252,11 +252,13 @@ func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProv
 		return music.Song{}, nil, err
 	}
 
-	// Spawns ffmpeg and wraps its PCM output in an opus encoder.
-	reader, err := audio.StreamFile(song.File)
+	// Spawns ffmpeg, wraps its PCM output in a mixer so the bot can speak
+	// over the track, and that in an opus encoder.
+	reader, mixer, err := audio.StreamFile(song.File)
 	if err != nil {
 		return music.Song{}, nil, err
 	}
+	setMixer(conn.GuildID(), mixer)
 
 	// Hand the reader to the queue so ClearQueue and Remove can close it --
 	// nothing in disgo ever will.
@@ -330,6 +332,8 @@ func advanceToPlayable(conn voice.Conn, player *music.MusicProvider, guild snowf
 func stopPlayback(conn voice.Conn, player *music.MusicProvider) {
 	conn.SetOpusFrameProvider(nil)
 	player.SetPlaying(false)
+	// Nothing is mixing any more, so a line now needs a stream of its own.
+	clearMixer(conn.GuildID())
 }
 
 func playerFor(guild snowflake.ID) *music.MusicProvider {
