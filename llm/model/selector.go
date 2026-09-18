@@ -47,6 +47,9 @@ type ModelProvider struct {
 type Model struct {
 	Client openai.Client
 	Name   string
+	// Transcribe is set only for a service with its own API; nil means the
+	// client above speaks OpenAI's /audio/transcriptions.
+	Transcribe Transcriber
 	// position in the provider's slice
 	Index int
 	score int
@@ -58,6 +61,8 @@ type jsonModel struct {
 	Name    string `json:"name"`
 	BaseUrl string `json:"base_url"`
 	AuthKey string `json:"auth_key"`
+	// Api is the shape the service speaks, defaulting to OpenAI's.
+	Api string `json:"api"`
 }
 
 // NewModelManager builds a rotation from modelsFile.
@@ -119,6 +124,11 @@ func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 			continue
 		}
 
+		transcribe, err := transcriberFor(modelData.Api, modelData.BaseUrl, authKey, modelData.Name)
+		if err != nil {
+			return nil, fmt.Errorf("model %s: %w", modelData.Name, err)
+		}
+
 		models = append(models, Model{
 			Client: openai.NewClient(
 				option.WithBaseURL(modelData.BaseUrl),
@@ -126,8 +136,9 @@ func newModelProvider(dataModels []jsonModel) (*ModelProvider, error) {
 				// we have our own retry policy
 				option.WithMaxRetries(0),
 			),
-			Name:  modelData.Name,
-			Index: len(models),
+			Name:       modelData.Name,
+			Transcribe: transcribe,
+			Index:      len(models),
 		})
 	}
 

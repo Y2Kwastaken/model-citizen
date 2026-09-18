@@ -1,7 +1,19 @@
 [
     {
+        "name": "nova-3",
+        "base_url": "https://api.deepgram.com",
+        "auth_key": "DEEPGRAM_KEY",
+        "api": "deepgram"
+    },
+    {
         "name": "voxtral-mini-latest",
         "base_url": "https://api.mistral.ai/v1",
         "auth_key": "MISTRAL_KEY"
+    },
+    {
+        "name": "universal",
+        "base_url": "https://api.assemblyai.com",
+        "auth_key": "ASSEMBLYAI_KEY",
+        "api": "assemblyai"
     }
 ]

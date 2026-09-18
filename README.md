@@ -45,6 +45,31 @@ entry plus a new line in `data/.env`. A model whose variable is unset is logged
 and dropped from the rotation rather than stopping the bot, so you can list a
 service before you have credentials for it.
 
+Everything is assumed to speak OpenAI's API. The two transcription services
+worth using that do not get an `api` field instead:
+
+```json
+[
+  {
+    "name": "nova-3",
+    "base_url": "https://api.deepgram.com",
+    "auth_key": "DEEPGRAM_KEY",
+    "api": "deepgram"
+  },
+  {
+    "name": "universal",
+    "base_url": "https://api.assemblyai.com",
+    "auth_key": "ASSEMBLYAI_KEY",
+    "api": "assemblyai"
+  }
+]
+```
+
+`api` may be `openai` (the default), `deepgram` or `assemblyai`, and `name` is
+whatever that service calls its model. Deepgram answers in one round trip;
+AssemblyAI queues the clip and is polled until it is done or the model's ten
+seconds are up, so it belongs last in the rotation.
+
 Every reply is timed. A fast model works its score down, a slow one works it up,
 and a model that crosses the score or errors outright is benched — the request
 is retried on the next model rather than failing. Benched models come back after

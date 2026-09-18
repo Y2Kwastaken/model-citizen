@@ -146,7 +146,12 @@ func (provider *BrainProvider) Transcribe(ctx context.Context, clip model.Clip) 
 		return "", fmt.Errorf("this model does not support transcription")
 	}
 
-	transcription, err := attempt(ctx, provider.rotations[model.STT], func(ctx context.Context, selected model.Model) (*openai.AudioTranscriptionNewResponseUnion, error) {
+	text, err := attempt(ctx, provider.rotations[model.STT], func(ctx context.Context, selected model.Model) (string, error) {
+		// a service with its own API brought its own way of being asked
+		if selected.Transcribe != nil {
+			return selected.Transcribe(ctx, clip)
+		}
+
 		params := openai.AudioTranscriptionNewParams{
 			// a fresh reader per attempt, since a failover re-sends the clip
 			File:  openai.File(bytes.NewReader(clip.Data), "clip."+clip.Format, "audio/"+clip.Format),
@@ -155,13 +160,18 @@ func (provider *BrainProvider) Transcribe(ctx context.Context, clip model.Clip) 
 		if clip.Language != "" {
 			params.Language = openai.String(clip.Language)
 		}
-		return selected.Client.Audio.Transcriptions.New(ctx, params)
+
+		transcription, err := selected.Client.Audio.Transcriptions.New(ctx, params)
+		if err != nil {
+			return "", err
+		}
+		return transcription.Text, nil
 	})
 	if err != nil {
 		return "", err
 	}
 
-	return strings.TrimSpace(transcription.Text), nil
+	return strings.TrimSpace(text), nil
 }
 
 func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCompletionNewParams, history []model.Message, origin model.Origin) (string, error) {
