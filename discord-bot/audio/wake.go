@@ -58,24 +58,50 @@ func LoadWakeWord(library string, dir string, model string) (*WakeWord, error) {
 		return nil, fmt.Errorf("onnxruntime: %w", initOnce.err)
 	}
 
+	opts, err := sessionOptions()
+	if err != nil {
+		return nil, fmt.Errorf("onnxruntime options: %w", err)
+	}
+	defer opts.Destroy()
+
 	w := &WakeWord{}
-	var err error
-	if w.mel, err = newSession(filepath.Join(dir, "melspectrogram.onnx"),
+	if w.mel, err = newSession(filepath.Join(dir, "melspectrogram.onnx"), opts,
 		ort.NewShape(1, wakeChunk+melContext), ort.NewShape(1, 1, melFramesPerStep, melBins)); err != nil {
 		return nil, err
 	}
-	if w.emb, err = newSession(filepath.Join(dir, "embedding_model.onnx"),
+	if w.emb, err = newSession(filepath.Join(dir, "embedding_model.onnx"), opts,
 		ort.NewShape(1, melWindow, melBins, 1), ort.NewShape(1, 1, 1, embeddingSize)); err != nil {
 		return nil, err
 	}
-	if w.head, err = newSession(filepath.Join(dir, model),
+	if w.head, err = newSession(filepath.Join(dir, model), opts,
 		ort.NewShape(1, scoreWindow, embeddingSize), ort.NewShape(1, 1)); err != nil {
 		return nil, err
 	}
 	return w, nil
 }
 
-func newSession(path string, in ort.Shape, out ort.Shape) (*session, error) {
+// sessionOptions runs each model on the calling thread. The default pool is a
+// thread per core that spins between runs, which is most of a CPU for 2ms of work.
+func sessionOptions() (*ort.SessionOptions, error) {
+	opts, err := ort.NewSessionOptions()
+	if err != nil {
+		return nil, err
+	}
+	for _, set := range []func() error{
+		func() error { return opts.SetIntraOpNumThreads(1) },
+		func() error { return opts.SetInterOpNumThreads(1) },
+		func() error { return opts.AddSessionConfigEntry("session.intra_op.allow_spinning", "0") },
+		func() error { return opts.AddSessionConfigEntry("session.inter_op.allow_spinning", "0") },
+	} {
+		if err := set(); err != nil {
+			_ = opts.Destroy()
+			return nil, err
+		}
+	}
+	return opts, nil
+}
+
+func newSession(path string, opts *ort.SessionOptions, in ort.Shape, out ort.Shape) (*session, error) {
 	inputs, outputs, err := ort.GetInputOutputInfo(path)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -91,7 +117,7 @@ func newSession(path string, in ort.Shape, out ort.Shape) (*session, error) {
 	if s.out, err = ort.NewEmptyTensor[float32](out); err != nil {
 		return nil, err
 	}
-	if s.run, err = ort.NewDynamicAdvancedSession(path, []string{inputs[0].Name}, []string{outputs[0].Name}, nil); err != nil {
+	if s.run, err = ort.NewDynamicAdvancedSession(path, []string{inputs[0].Name}, []string{outputs[0].Name}, opts); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return s, nil
