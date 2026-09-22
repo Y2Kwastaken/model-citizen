@@ -12,6 +12,7 @@ const (
 
 type LanguageModel interface {
 	HasFeature(feature ModelFeature) bool
+	MemorySet() MemorySet
 	Tools() ModelTools
 	History() HistoryProvider
 

@@ -45,6 +45,7 @@ type BrainProvider struct {
 	rotations map[model.ModelFeature]model.ModelManager
 	history   model.HistoryProvider
 	tools     model.ModelTools
+	memory    model.MemorySet
 }
 
 // NewBrainLanguageModel builds a rotation per feature. A rotation that cannot
@@ -80,6 +81,7 @@ func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 		rotations:    rotations,
 		history:      model.NewChatHistory(),
 		tools:        model.NewModelTools(),
+		memory:       model.NewMemorySet(map[model.MemoryType]model.MemoryProvider{model.SHORT_TERM: model.NewShortTerm(-1)}),
 	}, nil
 }
 
@@ -111,6 +113,10 @@ func (provider *BrainProvider) Tools() model.ModelTools {
 
 func (provider *BrainProvider) History() model.HistoryProvider {
 	return provider.history
+}
+
+func (provider *BrainProvider) MemorySet() model.MemorySet {
+	return provider.memory
 }
 
 // Implementation Functions

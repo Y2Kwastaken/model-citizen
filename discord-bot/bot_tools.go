@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"strings"
+	"time"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -21,6 +22,7 @@ func registerTools(client *bot.Client, brain model.LanguageModel) {
 	tools.Register(joinVoiceTool(client))
 	tools.Register(leaveVoiceTool(client))
 	tools.Register(disconnectUser(client))
+	tools.Register(commitToMemory(brain))
 }
 
 // disconnectUser kicks a named user out of the bot's voice channel for the model.
@@ -172,6 +174,51 @@ func leaveVoiceTool(client *bot.Client) model.Tool {
 				return err.Error()
 			}
 			return "left the voice channel"
+		},
+	}
+}
+
+func commitToMemory(brain model.LanguageModel) model.Tool {
+	return model.Tool{
+		Definition: shared.FunctionDefinitionParam{
+			Name:        "memorize",
+			Description: openai.String("commit to memory, use when you want to remember something"),
+			Parameters: shared.FunctionParameters{
+				"type": "object",
+				"properties": map[string]any{
+					"memory_type": map[string]any{"type": "integer", "description": "type of memory to commit to 0 short term, 1 long term"},
+					"name":        map[string]any{"type": "string", "description": "the name of who the memory is about"},
+					"memory":      map[string]any{"type": "string", "description": "what to put in memory"},
+				},
+				"required": []string{"memory"},
+			},
+		},
+		Handle: func(ctx context.Context, call model.Invocation) string {
+			var args struct {
+				MemoryType model.MemoryType `json:"memory_type"`
+				Name       string           `json:"name"`
+				Memory     string           `json:"memory"`
+			}
+
+			if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+				return "could not read the memory arguments: " + err.Error()
+			}
+
+			switch args.MemoryType {
+			case model.SHORT_TERM:
+				brain.MemorySet().Insert(
+					model.ModelMemory{
+						At:     time.Now(),
+						Name:   args.Name,
+						Memory: args.Memory,
+					}, args.MemoryType,
+				)
+				break
+			case model.LONG_TERM:
+				return "long term memory isn't implemented"
+			}
+
+			return "committed to memory"
 		},
 	}
 }
