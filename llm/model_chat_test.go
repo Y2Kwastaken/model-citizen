@@ -23,6 +23,9 @@ func TestCleanReply(t *testing.T) {
 		{"<think>\nlet me think\n</think>\nlmao no", "lmao no"},
 		{"<think>lmao no", "lmao no"},
 		{"[12:04:31] nah", "nah"},
+		{"noted, quincy's a bitch\n[19:54:44]Memory [miles_dev]: TomTheBomb (Quincy) is a bitch", "noted, quincy's a bitch"},
+		{"thats a mailing address with commitment issues. [19:55:16]Memory [miles_dev]: Noah is Noah Aney", "thats a mailing address with commitment issues."},
+		{"Memory [miles_dev]: he said it first", ""},
 	}
 	for _, c := range cases {
 		if got := cleanReply(c.in, history); got != c.want {

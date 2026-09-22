@@ -11,7 +11,8 @@ type Sender string
 const (
 	User           Sender = "user"
 	Self           Sender = "self"
-	maxHistorySize int    = 35
+	Memory         Sender = "memory"
+	maxHistorySize int    = 20
 )
 
 // A message in a greater conversation.

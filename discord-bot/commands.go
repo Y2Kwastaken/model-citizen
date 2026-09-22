@@ -1,6 +1,9 @@
 package discordbot
 
 import (
+	"strings"
+	"time"
+
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
 
@@ -21,6 +24,43 @@ func commandTable(brain model.LanguageModel) []Command {
 				Description: "check if the bot is alive",
 			},
 			Handler: handlePing,
+		},
+		{
+			Create: discord.SlashCommandCreate{
+				Name:        "dump-memories",
+				Description: "dumps bot memories",
+			},
+			Handler: func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+				return dumpMemories(data, e, brain)
+			},
+		},
+		{
+			Create: discord.SlashCommandCreate{
+				Name:        "memorize",
+				Description: "writes a memory into the bot's head by hand",
+				Options: []discord.ApplicationCommandOption{
+					discord.ApplicationCommandOptionString{
+						Name:        "name",
+						Description: "who the memory is about",
+						Required:    true,
+					},
+					discord.ApplicationCommandOptionString{
+						Name:        "memory",
+						Description: "what to remember about them",
+						Required:    true,
+					},
+					discord.ApplicationCommandOptionInt{
+						Name:        "type",
+						Description: "which memory it goes in (default short term)",
+						Required:    false,
+						Choices: []discord.ApplicationCommandOptionChoiceInt{
+							{Name: "short term", Value: int(model.SHORT_TERM)},
+							{Name: "long term", Value: int(model.LONG_TERM)},
+						},
+					},
+				},
+			},
+			Handler: memorizeCommand(brain),
 		},
 		{
 			Create: discord.SlashCommandCreate{
@@ -108,4 +148,36 @@ func newRouter(brain model.LanguageModel) (*handler.Mux, []discord.ApplicationCo
 
 func handlePing(_ discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
 	return replyEphemeral(event, "pong")
+}
+
+func memorizeCommand(brain model.LanguageModel) handler.SlashCommandHandler {
+	return func(data discord.SlashCommandInteractionData, event *handler.CommandEvent) error {
+		memType := model.MemoryType(data.Int("type"))
+		memory := model.ModelMemory{
+			At:     time.Now(),
+			Name:   data.String("name"),
+			Memory: data.String("memory"),
+		}
+
+		if !brain.MemorySet().Insert(memory, memType) {
+			return replyEphemeral(event, "nothing backs "+memType.String()+" memory yet, so that went nowhere")
+		}
+		return replyEphemeral(event, memType.String()+": "+memory.Name+" -- "+memory.Memory)
+	}
+}
+
+func dumpMemories(_ discord.SlashCommandInteractionData, event *handler.CommandEvent, brain model.LanguageModel) error {
+	var sb strings.Builder
+
+	sb.WriteString("Short Term:\n")
+	for _, memory := range brain.MemorySet().AllOrderedMemories() {
+		sb.WriteString(memory.At.Format("2006-01-02 15:04:05"))
+		sb.WriteString(" ")
+		sb.WriteString(memory.Name)
+		sb.WriteString(" ")
+		sb.WriteString(memory.Memory)
+		sb.WriteString("\n")
+	}
+
+	return replyEphemeral(event, sb.String())
 }

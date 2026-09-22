@@ -134,8 +134,13 @@ func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (s
 	}
 
 	orderedHistory := history.OrderedHistory(channel)
-	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(orderedHistory)+1)
+	memoryHistory := provider.memory.AllOrderedMemories()
+	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(memoryHistory)+len(orderedHistory)+1)
 	messages = append(messages, openai.SystemMessage(provider.systemPrompt))
+	for _, memory := range memoryHistory {
+		messages = append(messages, openai.SystemMessage("["+memory.At.Format("2006-01-02 15:04:05")+"]Memory ["+memory.Name+"]: "+memory.Memory))
+	}
+
 	for _, message := range orderedHistory {
 		switch message.Who {
 		case model.Self:

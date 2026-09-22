@@ -14,6 +14,13 @@ const (
 )
 const defaultShortTermSize int = 10
 
+func (memType MemoryType) String() string {
+	if memType == LONG_TERM {
+		return "long term"
+	}
+	return "short term"
+}
+
 type ModelMemory struct {
 	At     time.Time
 	Name   string
@@ -21,7 +28,7 @@ type ModelMemory struct {
 }
 
 type MemorySet interface {
-	Insert(memory ModelMemory, memType MemoryType)
+	Insert(memory ModelMemory, memType MemoryType) bool
 	OrderedMemories(memType MemoryType) []ModelMemory
 	AllOrderedMemories() []ModelMemory
 	Wipe(memType MemoryType)
@@ -131,11 +138,13 @@ func NewMemorySet(providers map[MemoryType]MemoryProvider) MemorySet {
 	return &memorySet{providers: owned}
 }
 
-// Stores a memory, dropping it when nothing backs the given type
-func (set *memorySet) Insert(memory ModelMemory, memType MemoryType) {
-	if provider, ok := set.providers[memType]; ok {
+// Stores a memory, reporting false when nothing backs the given type
+func (set *memorySet) Insert(memory ModelMemory, memType MemoryType) bool {
+	provider, ok := set.providers[memType]
+	if ok {
 		provider.Insert(memory)
 	}
+	return ok
 }
 
 func (set *memorySet) OrderedMemories(memType MemoryType) []ModelMemory {

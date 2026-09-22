@@ -231,9 +231,14 @@ func clip(reply string, limit int) string {
 // sometimes hands one back.
 var spokenAt = regexp.MustCompile(`^\s*\[\d{2}:\d{2}:\d{2}\]\s*`)
 
+// writtenMemory is a memory line typed into the reply instead of the memorize
+// tool being called. The note is lost either way, it just never ships.
+var writtenMemory = regexp.MustCompile(`(?im)\s*(?:\[\d{2}:\d{2}:\d{2}\])?\s*memory\s*\[[^\]]*\]:?.*$`)
+
 func cleanReply(reply string, history []model.Message) string {
 	reply = stripThinking(reply)
 	reply = spokenAt.ReplaceAllString(reply, "")
+	reply = writtenMemory.ReplaceAllString(reply, "")
 	return humanize(reply, history)
 }
 

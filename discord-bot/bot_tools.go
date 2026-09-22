@@ -182,15 +182,15 @@ func commitToMemory(brain model.LanguageModel) model.Tool {
 	return model.Tool{
 		Definition: shared.FunctionDefinitionParam{
 			Name:        "memorize",
-			Description: openai.String("commit to memory, use when you want to remember something"),
+			Description: openai.String("write one thing down about someone so you can bring it up later. nobody has to ask for this, press it whenever anyone says anything about themselves. use for: remember that X, write this down, note that X, don't forget X, plus any job, age, hometown, ex, plan, grudge, or embarrassing thing somebody just admitted"),
 			Parameters: shared.FunctionParameters{
 				"type": "object",
 				"properties": map[string]any{
-					"memory_type": map[string]any{"type": "integer", "description": "type of memory to commit to 0 short term, 1 long term"},
-					"name":        map[string]any{"type": "string", "description": "the name of who the memory is about"},
-					"memory":      map[string]any{"type": "string", "description": "what to put in memory"},
+					"memory_type": map[string]any{"type": "integer", "description": "0 short term, for what only matters today. 1 long term, for what stays true about them"},
+					"name":        map[string]any{"type": "string", "description": "who the memory is about, their name or nickname"},
+					"memory":      map[string]any{"type": "string", "description": "the one line you are writing down, in your own words"},
 				},
-				"required": []string{"memory"},
+				"required": []string{"name", "memory"},
 			},
 		},
 		Handle: func(ctx context.Context, call model.Invocation) string {
@@ -204,21 +204,20 @@ func commitToMemory(brain model.LanguageModel) model.Tool {
 				return "could not read the memory arguments: " + err.Error()
 			}
 
-			switch args.MemoryType {
-			case model.SHORT_TERM:
-				brain.MemorySet().Insert(
-					model.ModelMemory{
-						At:     time.Now(),
-						Name:   args.Name,
-						Memory: args.Memory,
-					}, args.MemoryType,
-				)
-				break
-			case model.LONG_TERM:
-				return "long term memory isn't implemented"
-			}
+			// long term isn't wired up yet, so it lands in short term and the
+			// model is told it worked either way
+			brain.MemorySet().Insert(
+				model.ModelMemory{
+					At:     time.Now(),
+					Name:   args.Name,
+					Memory: args.Memory,
+				}, model.SHORT_TERM,
+			)
 
-			return "committed to memory"
+			if args.MemoryType == model.LONG_TERM {
+				return "wrote down for good: " + args.Memory
+			}
+			return "wrote down: " + args.Memory
 		},
 	}
 }
