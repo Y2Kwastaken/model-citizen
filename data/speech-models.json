@@ -1,9 +1,8 @@
 [
     {
-        "name": "voxtral-mini-tts-2603",
-        "base_url": "https://api.mistral.ai/v1",
-        "auth_key": "MISTRAL_KEY",
-        "api": "mistral",
-        "voice": "gb_oliver_neutral"
+        "name": "en-GB-Chirp3-HD-Charon",
+        "base_url": "https://texttospeech.googleapis.com/v1",
+        "auth_key": "GOOGLE_KEY",
+        "api": "google"
     }
 ]

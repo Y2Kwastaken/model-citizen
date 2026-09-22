@@ -57,39 +57,24 @@ func decode(input string, path string, stdin io.Reader) (io.ReadCloser, error) {
 	return &process{Reader: stdout, command: command}, nil
 }
 
-// StreamFile opens path as opus frames ready for disgo, through a Mixer so
-// the bot can speak over what is playing. The Mixer is returned for that: it
-// is how a line reaches the stream once it is already running.
-func StreamFile(path string) (*OpusStream, *Mixer, error) {
-	pcm, err := DecodeFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	mixer := NewMixer(pcm)
-	stream, err := NewOpusStream(mixer, mixer)
-	if err != nil {
-		_ = mixer.Close()
-		return nil, nil, err
-	}
-	return stream, mixer, nil
-}
-
 // StreamSpeech opens a clip as opus frames of its own, for when nothing is
-// playing and the bot has the connection to itself.
-func StreamSpeech(pcm io.ReadCloser) (*OpusStream, error) {
+// playing and the bot has the connection to itself. The Mixer comes back
+// with the stream so a song that starts mid-line can go under it (SetBed),
+// and the channel closes once the clip has been mixed in full.
+func StreamSpeech(pcm io.ReadCloser) (*OpusStream, *Mixer, <-chan struct{}, error) {
 	mixer := NewMixer(nil)
 
 	// Queued before the stream starts: an empty Mixer ends immediately, which
 	// would end the stream before a word came out.
-	if _, ok := mixer.Say(pcm); !ok {
-		return nil, errors.New("mixer refused the clip")
+	done, ok := mixer.Say(pcm)
+	if !ok {
+		return nil, nil, nil, errors.New("mixer refused the clip")
 	}
 
 	stream, err := NewOpusStream(mixer, mixer)
 	if err != nil {
 		_ = mixer.Close()
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return stream, nil
+	return stream, mixer, done, nil
 }

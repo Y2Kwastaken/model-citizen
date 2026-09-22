@@ -157,6 +157,29 @@ func handlePlay(data discord.SlashCommandInteractionData, event *handler.Command
 	return nil
 }
 
+// playQueued queues query and starts it if nothing is playing. The bool is
+// whether playback started. May block on the voice handshake.
+func playQueued(ctx context.Context, client *bot.Client, guild snowflake.ID, user snowflake.ID, query string) (*queued, bool, error) {
+	queued, err := enqueue(ctx, client, guild, user, query)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if queued.player.Playing() {
+		return queued, false, nil
+	}
+
+	startPlaybackAsync(ctx, guild, queued, func(song music.Song, err error) {
+		if err == nil {
+			slog.Info("started playback",
+				slog.String("guild_id", guild.String()),
+				slog.String("song", playbackLabel(song)),
+			)
+		}
+	})
+	return queued, true, nil
+}
+
 // queued is a song that made it onto a guild's queue, with what the caller
 // needs to start it if nothing is playing.
 type queued struct {
@@ -253,12 +276,22 @@ func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProv
 	}
 
 	// Spawns ffmpeg, wraps its PCM output in a mixer so the bot can speak
-	// over the track, and that in an opus encoder.
-	reader, mixer, err := audio.StreamFile(song.File)
+	// over the track, and that in an opus encoder. If the bot is mid-line
+	// the track goes under the line on the line's own stream instead, which
+	// is already the connection's; a new stream would cut the line off.
+	pcm, err := audio.DecodeFile(song.File)
 	if err != nil {
 		return music.Song{}, nil, err
 	}
-	setMixer(conn.GuildID(), mixer)
+	reader, adopted := adoptStream(conn.GuildID(), pcm)
+	if !adopted {
+		mixer := audio.NewMixer(pcm)
+		if reader, err = audio.NewOpusStream(mixer, mixer); err != nil {
+			_ = mixer.Close()
+			return music.Song{}, nil, err
+		}
+		setMixer(conn.GuildID(), mixer, reader, false)
+	}
 
 	// Hand the reader to the queue so ClearQueue and Remove can close it --
 	// nothing in disgo ever will.
@@ -268,7 +301,9 @@ func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProv
 	}
 
 	// The entire disgo playback API. Audio starts on the next 20ms tick.
-	conn.SetOpusFrameProvider(reader)
+	if !adopted {
+		conn.SetOpusFrameProvider(reader)
+	}
 	player.SetPlaying(true)
 
 	// Warm the cache for what comes next while this song plays.

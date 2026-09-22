@@ -22,6 +22,9 @@ const (
 	// network -- without the bot answering into a conversation that has moved
 	// on. See TestTheEncoderStaysCloseToPlayback.
 	bufferedFrames = 50
+	// BufferedAudio is that as time: how far what has been encoded can run
+	// ahead of what has been heard.
+	BufferedAudio = bufferedFrames * FrameLength
 
 	// prefillFrames is how much must be buffered before playback starts.
 	// Spawning ffmpeg and filling the first pipe read costs ~100ms, which is
@@ -53,8 +56,9 @@ type OpusStream struct {
 	primedOnce sync.Once
 	primed     chan struct{} // closed once enough frames are buffered
 
-	// time tracking for the reader
-	sent atomic.Int64
+	// time tracking for the reader; origin is where what it is timing began
+	sent   atomic.Int64
+	origin atomic.Int64
 
 	// err is written by the producer before it closes frames, and read by the
 	// consumer only after observing that close, which orders the two.
@@ -101,7 +105,13 @@ func NewOpusStream(src io.Reader, closer io.Closer) (*OpusStream, error) {
 // ProvideOpusFrame blocks and the sender stalls with it, so a clock would
 // drift where the frame count does not.
 func (reader *OpusStream) Elapsed() time.Duration {
-	return time.Duration(reader.sent.Load()) * FrameLength
+	return time.Duration(max(0, reader.sent.Load()-reader.origin.Load())) * FrameLength
+}
+
+// SetOrigin starts Elapsed over from frame, for a stream that carried a
+// line before the song it now times (see Mixer.SetBed).
+func (reader *OpusStream) SetOrigin(frame int64) {
+	reader.origin.Store(frame)
 }
 
 // produce reads PCM, encodes it, and buffers the result until the source ends

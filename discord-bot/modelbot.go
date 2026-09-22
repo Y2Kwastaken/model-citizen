@@ -52,10 +52,12 @@ func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string,
 				gateway.IntentGuildMessages,
 				gateway.IntentMessageContent,
 				gateway.IntentGuildVoiceStates,
+				gateway.IntentGuildMembers,
+				gateway.IntentGuildModeration,
 			),
 		),
 		bot.WithCacheConfigOpts(
-			cache.WithCaches(cache.FlagGuilds, cache.FlagVoiceStates),
+			cache.WithCaches(cache.FlagGuilds, cache.FlagVoiceStates, cache.FlagMembers),
 		),
 		// discord requires libdave as vc is e2ee
 		bot.WithVoiceManagerConfigOpts(

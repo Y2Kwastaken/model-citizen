@@ -119,3 +119,24 @@ func TestHumanize(t *testing.T) {
 		t.Errorf("humanize = %q, want %q", got, want)
 	}
 }
+
+func TestAllScratch(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		raw, cleaned string
+		finish       string
+		want         bool
+	}{
+		{"ordinary reply", "lmao no", "lmao no", "stop", false},
+		{"thought then answered", "<think>hm</think>lmao no", "lmao no", "stop", false},
+		{"closed with no room to answer", "<think>hm hm hm</think>", "", "length", true},
+		{"never closed, ran out", "<think>hm hm hm", "hm hm hm", "length", true},
+		{"never closed, but finished", "<think>lmao no", "lmao no", "stop", false},
+		{"empty both ways", "", "", "stop", false},
+	} {
+		if got := allScratch(tc.raw, tc.cleaned, tc.finish); got != tc.want {
+			t.Errorf("%s: allScratch(%q, %q, %q) = %v, want %v",
+				tc.name, tc.raw, tc.cleaned, tc.finish, got, tc.want)
+		}
+	}
+}

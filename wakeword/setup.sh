@@ -33,6 +33,14 @@ sed -i 's/default="False"/default=False/' data/openwakeword/openwakeword/train.p
 # sampling step fails, so strip it there
 sed -i 's/input_text=target_phrase,/input_text=re.sub(r"[^\\w\\s]", "", target_phrase),/' data/openwakeword/openwakeword/train.py
 grep -q '^import re$' data/openwakeword/openwakeword/train.py || sed -i 's/^import argparse$/import argparse\nimport re/' data/openwakeword/openwakeword/train.py
+# auto_train doubles the weight on negatives after any sequence that missed
+# target_false_positives_per_hour, but best_val_fp is set to 1000 at init and
+# never assigned, so the test is always true: the weight doubles twice every
+# run whatever the config says, and recall pays for it. Record it alongside
+# the other best_* metrics, on the checkpoints the trainer decides to keep.
+grep -q 'best_val_fp = min' data/openwakeword/openwakeword/train.py || sed -i \
+    's/^\( *\)self.best_val_recall = self.history\["val_recall"\]\[-1\]$/\1self.best_val_fp = min(self.best_val_fp, float(self.history.get("val_fp_per_hr", [self.best_val_fp])[-1]))\n&/' \
+    data/openwakeword/openwakeword/train.py
 
 # The training half of openwakeword's [full] extra, minus the TensorFlow stack
 # that only serves --convert_to_tflite. PyPI torch wheels bundle CUDA.

@@ -25,6 +25,7 @@ import (
 const (
 	maxReplyRunes  = 650  // one thought; the prompt says shorter is always better
 	maxReplyTokens = 250  // enough to reach maxReplyRunes, no point generating what clip throws away
+	toolRoundBonus = 350  // extra while tools are offered: deciding on a call takes thinking that 250 cuts off
 	temperature    = 0.85 // the NIM default repeats itself word for word
 	topP           = 0.9
 	maxRetries     = 2 // redraws per reply when the judge objects
@@ -34,10 +35,7 @@ const (
 var (
 	// list markers, headings, "step 1:" labels, and divider lines
 	structure = regexp.MustCompile(`(?im)^\s*(?:[-*•]|\d+[.)]|#{1,6}|step \d+[:.)])\s+|^[\s\-–—=_*~]{2,}$\n?`)
-	// a reasoning block, or the tail of one; even with reasoning off the model
-	// sometimes emits "...</think>" first, and everything before it is scratch
-	thinkBlock = regexp.MustCompile(`(?s)^.*?</think>`)
-	sentence   = regexp.MustCompile(`[.!?]+\s+`)
+	sentence  = regexp.MustCompile(`[.!?]+\s+`)
 	// both sides of the prompt's example exchanges
 	exampleLine = regexp.MustCompile(`(?m)^(?:you|them): (.+)$`)
 	notWord     = regexp.MustCompile(`[^a-z0-9]+`)
@@ -234,10 +232,56 @@ func clip(reply string, limit int) string {
 var spokenAt = regexp.MustCompile(`^\s*\[\d{2}:\d{2}:\d{2}\]\s*`)
 
 func cleanReply(reply string, history []model.Message) string {
-	reply = thinkBlock.ReplaceAllString(reply, "")
-	reply = strings.ReplaceAll(reply, "<think>", "")
+	reply = stripThinking(reply)
 	reply = spokenAt.ReplaceAllString(reply, "")
 	return humanize(reply, history)
+}
+
+// stripThinking drops a reasoning block. brain.go asks for
+// ReasoningEffortNone and the models treat it as a suggestion, so a draft
+// often arrives as "<think>...</think>answer". A lone opening tag is a stray
+// mark on an ordinary reply and only the tag goes; whether an unclosed block
+// is that or thinking cut off by MaxTokens is not decidable here, so draw
+// settles it where the finish reason is in hand.
+func stripThinking(reply string) string {
+	if _, rest, ok := strings.Cut(reply, "</think>"); ok {
+		reply = rest
+	}
+	return strings.ReplaceAll(reply, "<think>", "")
+}
+
+// scratchNudge answers a draft that was nothing but the model's own working.
+const scratchNudge = "you spent your whole reply thinking. do not think. answer them directly, in one short line."
+
+// allScratch reports a draft with no reply in it, only thinking: a closing
+// tag with no room left to answer after it, which cleanReply takes down to
+// nothing; a block that ran into MaxTokens and never closed; or nothing at
+// all under MaxTokens, which means the thinking came back out of band (see
+// reasoningLen) and used the whole budget.
+func allScratch(raw, cleaned, finish string) bool {
+	if strings.TrimSpace(raw) != "" && cleaned == "" {
+		return true
+	}
+	if finish != "length" {
+		return false
+	}
+	if strings.TrimSpace(raw) == "" {
+		return true
+	}
+	return strings.Contains(raw, "<think>") && !strings.Contains(raw, "</think>")
+}
+
+// reasoningLen is how much thinking a model sent outside content. NIM puts
+// it in reasoning_content, ollama in reasoning; neither counts toward the
+// reply but both count toward MaxTokens.
+func reasoningLen(message openai.ChatCompletionMessage) int {
+	for _, key := range []string{"reasoning_content", "reasoning"} {
+		// Valid() is false for extra fields, so go by the raw text
+		if field, ok := message.JSON.ExtraFields[key]; ok {
+			return len(field.Raw())
+		}
+	}
+	return 0
 }
 
 // humanize is the full pass, in dependency order: transcript noise first, then
@@ -271,14 +315,30 @@ func draw(ctx context.Context, complete completer, params openai.ChatCompletionN
 		if len(completion.Choices) == 0 {
 			return "", fmt.Errorf("model returned no choices")
 		}
-		reply = cleanReply(completion.Choices[0].Message.Content, history)
+		raw := completion.Choices[0].Message.Content
+		reply = cleanReply(raw, history)
 
 		nudge := judge(reply)
+		// Being told the draft was empty means nothing to a model that wrote
+		// plenty and spent all of it thinking, so say what actually happened.
+		finish := string(completion.Choices[0].FinishReason)
+		if allScratch(raw, reply, finish) {
+			reply, nudge = "", scratchNudge
+			// the tokens went somewhere; show where
+			slog.Info("draft was all scratch", slog.String("choice", completion.Choices[0].RawJSON()))
+		}
 		if nudge == "" || attempt >= maxRetries {
 			return reply, nil
 		}
 		// a redraw is another full round trip, so it is worth seeing
-		slog.Info("redrawing reply", slog.Int("attempt", attempt), slog.String("draft", reply), slog.String("nudge", nudge))
+		slog.Info("redrawing reply",
+			slog.String("model", completion.Model),
+			slog.Int("attempt", attempt),
+			slog.String("draft", reply),
+			slog.Int("raw_len", len(raw)),
+			slog.Int("reasoning_len", reasoningLen(completion.Choices[0].Message)),
+			slog.String("finish_reason", finish),
+			slog.String("nudge", nudge))
 		params.Messages = append(params.Messages, openai.SystemMessage(nudge))
 	}
 }

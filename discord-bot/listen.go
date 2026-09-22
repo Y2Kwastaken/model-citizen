@@ -20,26 +20,21 @@ import (
 )
 
 const (
-	// retained per speaker; a wake can reach back this far
+	// retained voice length per speaker
 	listenWindow = 30 * time.Second
-	// what a wake sends up: this much before the trigger, plus the command
+	// a wake has this much context
 	contextWindow = 10 * time.Second
-	// The speaker has finished their command after this much quiet, or after
-	// commandMax regardless. Discord's own voice gate already holds the
-	// stream open a few hundred ms past the last word, so a gap in packets
-	// means the client has decided they are done; this only has to outlast
-	// jitter.
+	// how long of quiet before processing is hit
 	commandQuiet = 350 * time.Millisecond
-	commandMax   = 10 * time.Second
-	// anything shorter is a cough, and Whisper-family models invent words
-	// for it
-	minUtterance = 400 * time.Millisecond
-
-	wakeDebounce = 3 * time.Second
-
-	captureLanguage = "en"
-
+	// how long can be spent on speaking
+	commandMax = 10 * time.Second
+	// no "incoherence"
+	minUtterance      = 400 * time.Millisecond
+	wakeDebounce      = 3 * time.Second
+	captureLanguage   = "en"
 	transcribeTimeout = 30 * time.Second
+	// synthesis plus playback of one reply
+	speakTimeout = 60 * time.Second
 )
 
 // ears is the per-guild listening state. The brain and wake word are set
@@ -60,8 +55,7 @@ type line struct {
 	Text string
 }
 
-// listen installs a Listener on a freshly opened connection and answers its
-// wake word triggers in the voice channel's own chat.
+// listen installs a Listener on a freshly opened connection and answers its wake word triggers.
 func listen(client *bot.Client, guild snowflake.ID, channel snowflake.ID, conn voice.Conn) {
 	listener := audio.NewListener(ears.wake, listenWindow, ears.threshold, wakeDebounce)
 	conn.SetOpusFrameReceiver(listener)
@@ -79,13 +73,12 @@ func listen(client *bot.Client, guild snowflake.ID, channel snowflake.ID, conn v
 	go func() {
 		// the channel closes when the connection does
 		for trigger := range listener.Triggers() {
-			handleWake(client, guild, channel, listener, trigger)
+			handleWake(client, guild, channel, listener, trigger, false)
 		}
 	}()
 }
 
-// stopListening forgets a guild's listener. Closing the connection is what
-// actually stops it; this just drops the reference.
+// stops listening for guild's listener
 func stopListening(guild snowflake.ID) {
 	ears.mu.Lock()
 	defer ears.mu.Unlock()
@@ -103,23 +96,26 @@ func listenerFor(guild snowflake.ID) (*audio.Listener, bool) {
 }
 
 // handleWake transcribes what everyone said leading up to and including the
-// command after the wake word, and has the brain answer in the voice
-// channel's chat.
+// command after the wake word, and has the brain answer out loud in the
+// voice channel and in its chat.
 //
 // Latency is the whole game here. Everything said before the wake word is
 // final the moment it fires, so it goes to the transcriber while the speaker
 // is still talking; only the command itself waits for them to finish.
-func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, listener *audio.Listener, trigger audio.Trigger) {
-	slog.Info("wake word",
-		slog.String("guild_id", guild.String()),
-		slog.String("user_id", trigger.User.String()),
-		slog.Float64("score", float64(trigger.Score)),
-	)
+func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, listener *audio.Listener, trigger audio.Trigger, chat bool) {
+	if trigger.User != snowflake.ID(0) {
+		slog.Info("wake word",
+			slog.String("guild_id", guild.String()),
+			slog.String("user_id", trigger.User.String()),
+			slog.Float64("score", float64(trigger.Score)),
+		)
+	}
 
+	// we have 90 seconds to react
 	ctx, cancel := context.WithTimeout(context.Background(), commandMax+transcribeTimeout+30*time.Second)
 	defer cancel()
 
-	// best effort: the room sees us react before anything has been heard
+	// send a typing indicator
 	go func() {
 		if err := client.Rest.SendTyping(channel); err != nil {
 			slog.Debug("typing indicator", slog.Any("err", err))
@@ -159,20 +155,55 @@ func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, li
 		return
 	}
 
-	if _, err := client.Rest.CreateMessage(channel, discord.NewMessageCreate().
-		WithContent(agent.Truncate(reply, 2000)).
-		WithAllowedMentions(&discord.AllowedMentions{Parse: []discord.AllowedMentionType{}})); err != nil {
-		slog.Error("replying in voice chat", slog.String("channel_id", channel.String()), slog.Any("err", err))
+	// The text goes up whatever happens to the voice: it is the fallback
+	// when there is no voice to speak with, and the record when there is.
+	// Synthesis starts at the same time, so the line follows the message
+	// as closely as the voice allows.
+	type spoken struct {
+		synthesized time.Time // when the clip was ready to play
+		err         error
+	}
+	said := make(chan spoken, 1)
+	if ears.brain.HasFeature(model.TTS) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), speakTimeout)
+			defer cancel()
+			pcm, err := synthesize(ctx, ears.brain, reply)
+			ready := time.Now()
+			if err == nil {
+				err = play(ctx, client, guild, pcm)
+			}
+			said <- spoken{ready, err}
+		}()
+	} else {
+		said <- spoken{answered, nil}
 	}
 
-	// where the time went, from the wake word to the reply being posted
+	if chat {
+		if _, err := client.Rest.CreateMessage(channel, discord.NewMessageCreate().
+			WithContent(agent.Truncate(reply, 2000)).
+			WithAllowedMentions(&discord.AllowedMentions{Parse: []discord.AllowedMentionType{}})); err != nil {
+			slog.Error("replying in voice chat", slog.String("channel_id", channel.String()), slog.Any("err", err))
+		}
+	}
+	posted := time.Now()
+
+	line := <-said
+	if line.err != nil {
+		slog.Warn("saying the reply, text only", slog.String("guild_id", guild.String()), slog.Any("err", line.err))
+	}
+
+	// Where the time went. Up to "synth" is the wait before anything is
+	// heard; "say" is the line's own length, not a delay.
 	slog.Info("wake word answered",
 		slog.String("guild_id", guild.String()),
 		slog.Duration("command", finished.Sub(trigger.At).Round(time.Millisecond)),
 		slog.Duration("transcribe", transcribed.Sub(finished).Round(time.Millisecond)),
 		slog.Duration("chat", answered.Sub(transcribed).Round(time.Millisecond)),
-		slog.Duration("post", time.Since(answered).Round(time.Millisecond)),
-		slog.Duration("total", time.Since(trigger.At).Round(time.Millisecond)),
+		slog.Duration("post", posted.Sub(answered).Round(time.Millisecond)),
+		slog.Duration("synth", line.synthesized.Sub(answered).Round(time.Millisecond)),
+		slog.Duration("say", time.Since(line.synthesized).Round(time.Millisecond)),
+		slog.Duration("heard_after", line.synthesized.Sub(trigger.At).Round(time.Millisecond)),
 	)
 }
 

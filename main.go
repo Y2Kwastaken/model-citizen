@@ -35,11 +35,7 @@ const (
 	defaultOnnxruntimeLib = "/usr/local/lib/libonnxruntime.so"
 	defaultWakeDir        = "wakeword"
 	wakeModel             = "hey_model.onnx"
-	// hey_model.onnx scored 93% of clean utterances over this with one false
-	// trigger per ~2 hours per speaker; live audio through Discord's voice
-	// gate lands lower than clean, and misses cost more than the odd extra
-	// wake, so it errs low. 0.3 halves the false triggers if they grate.
-	defaultWakeThreshold = 0.2
+	defaultWakeThreshold  = 0.12
 )
 
 func main() {
@@ -58,8 +54,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Without a wake word the bot still listens, for /transcribe; it just
-	// never wakes itself.
 	wake, err := audio.LoadWakeWord(envOr(ONNXRUNTIME_LIB_KEY, defaultOnnxruntimeLib), envOr(WAKE_DIR_KEY, defaultWakeDir), wakeModel)
 	if err != nil {
 		slog.Warn("wake word disabled", slog.Any("err", err))

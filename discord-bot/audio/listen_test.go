@@ -99,6 +99,28 @@ func TestListenerHearsTheWakeWord(t *testing.T) {
 	}
 }
 
+func TestDebounceIsPerSpeaker(t *testing.T) {
+	// The debounce stops one person's wake becoming several. It is not a
+	// reason to go deaf to everyone else in the channel, so the second
+	// speaker wakes it inside the first speaker's window.
+	l, _ := newTestListener(loadWakeWord(t), 10*time.Second)
+	for _, user := range []snowflake.ID{7, 8} {
+		for _, p := range encodePackets(t, readWAV(t, "testdata/hey_model_positive.wav")) {
+			if err := l.ReceiveOpusFrame(user, p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		select {
+		case trig := <-l.Triggers():
+			if trig.User != user {
+				t.Fatalf("trigger = %+v, want user %d", trig, user)
+			}
+		default:
+			t.Fatalf("user %d went unheard inside the other speaker's debounce", user)
+		}
+	}
+}
+
 func TestListenerIgnoresTheNegative(t *testing.T) {
 	l, _ := newTestListener(loadWakeWord(t), 10*time.Second)
 	for _, p := range encodePackets(t, readWAV(t, "testdata/hey_model_negative.wav")) {

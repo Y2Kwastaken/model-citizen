@@ -86,20 +86,29 @@ seconds are up, so it belongs last in the rotation.
 ```json
 [
   {
-    "name": "voxtral-mini-tts-2603",
-    "base_url": "https://api.mistral.ai/v1",
-    "auth_key": "MISTRAL_KEY",
-    "api": "mistral",
-    "voice": "gb_oliver_neutral"
+    "name": "en-GB-Chirp3-HD-Charon",
+    "base_url": "https://texttospeech.googleapis.com/v1",
+    "auth_key": "GOOGLE_KEY",
+    "api": "google"
   }
 ]
 ```
 
-Speech is the one feature where the model and the voice are separate, which is
-what `voice` is for. `gb_oliver_neutral` is a British man; `GET /v1/audio/voices`
-lists the rest, and `en_paul_*` covers eight moods of the same American. The
-model is pinned rather than `voxtral-mini-tts-latest`, because an alias moves
-and the voice is the bot's whole character to whoever is listening.
+Google's voices have no model apart from the voice, so `name` is the voice
+and there is no `voice` field. `GET /v1/voices?languageCode=en-GB` with the
+key in `x-goog-api-key` lists them; the Chirp 3 HD set (Charon, Fenrir,
+Puck, Kore, Aoede, ...) exists under every `en-*` locale. The first million
+characters a month are free, which is thousands of lines, and Google does
+not read the text before saying it.
+
+Mistral's Voxtral (`"api": "mistral"`, with the model in `name` and the
+voice in `voice`, e.g. `gb_oliver_neutral`) was the voice before this. It
+sounds good and costs nothing, but it runs the text past a content filter
+first and refused the persona often enough to matter. Speech is the one
+feature where the model and the voice are separate, which is what `voice`
+is for on the services that have both; pin the model rather than an alias
+like `voxtral-mini-tts-latest`, because an alias moves and the voice is the
+bot's whole character to whoever is listening.
 
 Nothing here runs locally. A voice worth listening to wants more compute than
 the box has: kokoro took eight to twelve seconds per line on two cores, against

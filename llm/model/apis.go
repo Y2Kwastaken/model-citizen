@@ -16,6 +16,7 @@ import (
 const (
 	apiOpenAI     = "openai"
 	apiMistral    = "mistral"
+	apiGoogle     = "google"
 	apiDeepgram   = "deepgram"
 	apiAssemblyAI = "assemblyai"
 )
@@ -45,6 +46,7 @@ type api struct {
 var apis = map[string]api{
 	apiOpenAI:     {speak: openAiSpeaker},
 	apiMistral:    {speak: mistralSpeaker},
+	apiGoogle:     {speak: googleSpeaker},
 	apiDeepgram:   {transcribe: deepgramTranscriber},
 	apiAssemblyAI: {transcribe: assemblyAiTranscriber},
 }

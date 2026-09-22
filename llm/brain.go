@@ -12,6 +12,7 @@ import (
 
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 )
 
@@ -199,6 +200,10 @@ func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCom
 		if round >= maxToolRounds {
 			params.Tools = nil
 		}
+		params.MaxTokens = openai.Int(maxReplyTokens)
+		if params.Tools != nil {
+			params.MaxTokens = openai.Int(maxReplyTokens + toolRoundBonus)
+		}
 
 		completion, err := provider.chatOnce(ctx, params)
 		if err != nil {
@@ -212,6 +217,7 @@ func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCom
 		message := completion.Choices[0].Message
 		if len(message.ToolCalls) == 0 || params.Tools == nil {
 			params.Tools = nil
+			params.MaxTokens = openai.Int(maxReplyTokens)
 			return draw(ctx, provider.chatOnce, params, history, completion)
 		}
 
@@ -227,7 +233,15 @@ func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCom
 func (provider *BrainProvider) chatOnce(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 	return attempt(ctx, provider.rotations[model.Chat], func(ctx context.Context, selected model.Model) (*openai.ChatCompletion, error) {
 		params.Model = selected.Name
-		return selected.Client.Chat.Completions.New(ctx, params)
+		// ReasoningEffortNone is ignored by the NIM models. enable_thinking is
+		// the vllm switch nemotron honours; muse-glimmer cannot stop thinking
+		// and only takes reasoning_strength. ollama drops unknown fields.
+		return selected.Client.Chat.Completions.New(ctx, params,
+			option.WithJSONSet("chat_template_kwargs", map[string]any{
+				"enable_thinking":    false,
+				"thinking":           false,
+				"reasoning_strength": "low",
+			}))
 	})
 }
 

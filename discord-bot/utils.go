@@ -4,10 +4,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"strings"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -145,4 +147,43 @@ func voiceChannelUsers(client *bot.Client, guild snowflake.ID, channel snowflake
 		}
 	}
 	return users
+}
+
+// findApproximateUsersInVoice returns the users in a voice channel whose
+// username, nickname or display name matches name, ignoring case. Cache
+// first; a miss is a REST call, and a channel full of misses rate limits.
+func findApproximateUsersInVoice(client *bot.Client, guild snowflake.ID, channel snowflake.ID, name string) []discord.User {
+	var users []discord.User
+	for _, user := range voiceChannelUsers(client, guild, channel) {
+		member, ok := client.Caches.Member(guild, user)
+		if !ok {
+			fetched, err := client.Rest.GetMember(guild, user)
+			if err != nil {
+				slog.Warn("looking up voice member", slog.String("user_id", user.String()), slog.Any("err", err))
+				continue
+			}
+			member = *fetched
+		}
+
+		nick := ""
+		if member.Nick != nil {
+			nick = *member.Nick
+		}
+		if strings.EqualFold(nick, name) ||
+			strings.EqualFold(member.User.Username, name) ||
+			strings.EqualFold(member.EffectiveName(), name) {
+			users = append(users, member.User)
+		}
+	}
+
+	return users
+}
+
+// disconnectFromVoice kicks user out of whatever voice channel they are in.
+// MemberUpdate omits a nil ChannelID, and Discord needs an explicit null.
+func disconnectFromVoice(client *bot.Client, guild snowflake.ID, user snowflake.ID) error {
+	body := struct {
+		ChannelID *snowflake.ID `json:"channel_id"`
+	}{}
+	return client.Rest.Do(rest.UpdateMember.Compile(nil, guild, user), body, nil)
 }

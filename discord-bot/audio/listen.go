@@ -12,11 +12,7 @@ import (
 
 // UtteranceGap is the pause that separates two utterances by one speaker.
 const UtteranceGap = 600 * time.Millisecond
-
-// nearMiss is the score from which a non-trigger is worth a log line, so a
-// threshold can be tuned from what real speech actually scores.
 const nearMiss = 0.1
-
 const utteranceGap = SampleRate * 6 / 10 // UtteranceGap in samples
 
 // Listener hears everyone in a voice channel. It keeps the last window of
@@ -32,23 +28,22 @@ type Listener struct {
 	debounce  time.Duration
 	now       func() time.Time
 
-	mu          sync.Mutex
-	speakers    map[snowflake.ID]*speaker
-	closed      bool
-	lastTrigger time.Time
-	triggers    chan Trigger
+	mu       sync.Mutex
+	speakers map[snowflake.ID]*speaker
+	closed   bool
+	triggers chan Trigger
 }
 
-// speaker is one person's stream.
 type speaker struct {
-	decoder   *Decoder
-	dec       decimator
-	detector  *Detector
-	segments  []segment // oldest first, trimmed to the window
-	lastHeard time.Time
-	lastSeq   uint16    // RTP sequence of the last packet, to see what never arrived
-	peak      float32   // best sub-threshold score since it was last logged
-	peakAt    time.Time // when the peak was last logged
+	decoder     *Decoder
+	dec         decimator
+	detector    *Detector
+	segments    []segment // oldest first, trimmed to the window
+	lastHeard   time.Time
+	lastSeq     uint16    // RTP sequence of the last packet, to see what never arrived
+	peak        float32   // best sub-threshold score since it was last logged
+	peakAt      time.Time // when the peak was last logged
+	lastTrigger time.Time // The debounce is per speaker
 }
 
 // segment is one packet: when it arrived, the pause the sender skipped
@@ -129,12 +124,9 @@ func (l *Listener) ReceiveOpusFrame(userID snowflake.ID, packet *voice.Packet) e
 	}
 
 	now := l.now()
-	// An utterance starts after a pause. The sequence gap says how many
-	// packets the sender numbered that never got here: five is the silence
-	// tail DAVE rejects at the end of the last spurt; more than that is the
-	// start of this one being lost before it reached us.
+	// An utterance starts after a pause our gap tells us how long that pause must be be
 	if silence >= utteranceGap && len(s.segments) > 0 {
-		slog.Info("utterance start",
+		slog.Debug("utterance start",
 			slog.String("user_id", userID.String()),
 			slog.Duration("pause", time.Duration(silence)*time.Second/SampleRate),
 			slog.Int("packets_missing", int(packet.Sequence-s.lastSeq)-1),
@@ -161,8 +153,8 @@ func (l *Listener) ReceiveOpusFrame(userID snowflake.ID, packet *voice.Packet) e
 	}
 	if score >= l.threshold {
 		s.peak, s.peakAt = 0, now // the run-up to a trigger is not a near miss
-		if now.Sub(l.lastTrigger) >= l.debounce {
-			l.lastTrigger = now
+		if now.Sub(s.lastTrigger) >= l.debounce {
+			s.lastTrigger = now
 			select {
 			case l.triggers <- Trigger{User: userID, At: now, Score: score}:
 			default:

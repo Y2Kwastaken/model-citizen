@@ -156,6 +156,108 @@ func TestMixerCloseWakesAnAbandonedClip(t *testing.T) {
 	}
 }
 
+// A song that starts while the bot is mid-line goes under the rest of the
+// line, then carries on alone: the line is never cut.
+func TestMixerTakesABedMidLine(t *testing.T) {
+	mixer := NewMixer(nil)
+	// a three frame line, said alone
+	if _, ok := mixer.Say(clip(tone(3, 100))); !ok {
+		t.Fatal("Say refused a fresh mixer")
+	}
+
+	// one frame in, a two frame song arrives
+	frame := make([]byte, FrameBytes)
+	if _, err := io.ReadFull(mixer, frame); err != nil {
+		t.Fatalf("first frame: %v", err)
+	}
+	if sampleAt(frame, 0) != 100 {
+		t.Fatalf("first frame sample = %d, want the line alone", sampleAt(frame, 0))
+	}
+	origin, ok := mixer.SetBed(bytes.NewReader(tone(2, 1000)))
+	if !ok {
+		t.Fatal("SetBed refused a mixer still talking")
+	}
+	if origin != 1 {
+		t.Errorf("bed starts at frame %d, want 1", origin)
+	}
+
+	rest, err := io.ReadAll(mixer)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// two more frames of line over the bed, then nothing: the bed is only
+	// two frames long and the line covered both
+	if len(rest) != 2*FrameBytes {
+		t.Fatalf("read %d more bytes, want %d", len(rest), 2*FrameBytes)
+	}
+	if want := int16(1000*duckedGain) + 100; sampleAt(rest, 0) != want {
+		t.Errorf("mixed sample = %d, want %d", sampleAt(rest, 0), want)
+	}
+}
+
+// Once the line is over, the bed plays on at full volume: the stream that
+// carried the line is now the song's.
+func TestMixerKeepsPlayingABedTakenMidLine(t *testing.T) {
+	mixer := NewMixer(nil)
+	mixer.Say(clip(tone(1, 100)))
+	if _, ok := mixer.SetBed(bytes.NewReader(tone(3, 1000))); !ok {
+		t.Fatal("SetBed refused a mixer still talking")
+	}
+
+	got, err := io.ReadAll(mixer)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(got) != 3*FrameBytes {
+		t.Fatalf("read %d bytes, want %d", len(got), 3*FrameBytes)
+	}
+	if want := int16(1000); sampleAt(got, FrameSize*Channels) != want {
+		t.Errorf("sample after the line = %d, want the bed alone", sampleAt(got, FrameSize*Channels))
+	}
+}
+
+// A mixer that has ended, or one already playing a song, cannot take a bed:
+// the song needs a stream of its own.
+func TestMixerRefusesABedWhenItCannotPlayIt(t *testing.T) {
+	spent := NewMixer(nil)
+	spent.Say(clip(tone(1, 100)))
+	if _, err := io.ReadAll(spent); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, ok := spent.SetBed(bytes.NewReader(tone(1, 1000))); ok {
+		t.Error("a finished mixer took a bed")
+	}
+
+	busy := NewMixer(bytes.NewReader(tone(2, 1000)))
+	if _, ok := busy.SetBed(bytes.NewReader(tone(1, 1000))); ok {
+		t.Error("a mixer with a song playing took another")
+	}
+}
+
+type closeCounter struct {
+	io.Reader
+	closed int
+}
+
+func (c *closeCounter) Close() error { c.closed++; return nil }
+
+// A bed handed over and never reached is a decoder process; Close must reach it.
+func TestMixerCloseReleasesAPendingBed(t *testing.T) {
+	mixer := NewMixer(nil)
+	mixer.Say(clip(tone(5, 100)))
+	bed := &closeCounter{Reader: bytes.NewReader(tone(1, 1000))}
+	if _, ok := mixer.SetBed(bed); !ok {
+		t.Fatal("SetBed refused a mixer still talking")
+	}
+
+	if err := mixer.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if bed.closed != 1 {
+		t.Errorf("pending bed closed %d times, want once", bed.closed)
+	}
+}
+
 // Speech is louder than the headroom left in a loud track, so the sum has to
 // clamp rather than wrap into a click.
 func TestMixdownClamps(t *testing.T) {

@@ -124,3 +124,31 @@ func TestPrefillDoesNotStallShortTracks(t *testing.T) {
 		t.Fatalf("constructor blocked %v on a %d-frame track", elapsed, 3)
 	}
 }
+
+// A stream that carried a line before a song counts the song's time from
+// where the song began, not from the line.
+func TestOpusStreamElapsedFromOrigin(t *testing.T) {
+	stream, err := NewOpusStream(bytes.NewReader(tone(4, 100)), nil)
+	if err != nil {
+		t.Fatalf("NewOpusStream: %v", err)
+	}
+	defer stream.Close()
+
+	for range 3 {
+		if _, err := stream.ProvideOpusFrame(); err != nil {
+			t.Fatalf("ProvideOpusFrame: %v", err)
+		}
+	}
+	if stream.Elapsed() != 3*FrameLength {
+		t.Fatalf("elapsed = %v before an origin, want %v", stream.Elapsed(), 3*FrameLength)
+	}
+
+	stream.SetOrigin(2)
+	if stream.Elapsed() != FrameLength {
+		t.Errorf("elapsed = %v from frame 2, want %v", stream.Elapsed(), FrameLength)
+	}
+	stream.SetOrigin(10)
+	if stream.Elapsed() != 0 {
+		t.Errorf("elapsed = %v from a frame not yet sent, want 0", stream.Elapsed())
+	}
+}

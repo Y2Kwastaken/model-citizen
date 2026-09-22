@@ -22,7 +22,9 @@ const duckedGain = 0.25
 // encoder, with the music none the wiser.
 //
 // A Mixer with no bed is how the bot talks when nothing is playing: it ends as
-// soon as it has nothing left to say, and the stream ends with it.
+// soon as it has nothing left to say, and the stream ends with it -- unless a
+// bed arrives first (SetBed), in which case the line carries on over it and
+// the mixer becomes the music's.
 type Mixer struct {
 	// bed and its state belong to whoever is reading, which is only ever the
 	// one producer goroutine inside OpusStream.
@@ -36,6 +38,10 @@ type Mixer struct {
 	queue    []*speech
 	finished bool
 	closed   bool
+	// a bed handed over mid-line, taken up at the next frame
+	pending io.Reader
+	// frames built so far, which is where a pending bed will start
+	frames int64
 }
 
 // speech is one clip waiting its turn.
@@ -73,12 +79,35 @@ func (mixer *Mixer) Say(pcm io.ReadCloser) (<-chan struct{}, bool) {
 	return line.done, true
 }
 
+// SetBed starts playing bed under whatever is being said, from the next
+// frame. It reports the frame the bed starts at, so an OpusStream that was
+// carrying a line alone can count the bed's own time (SetOrigin), and false
+// if the mixer is already spent, in which case the bed needs a mixer of its
+// own.
+//
+// This is how a song that starts while the bot is mid-sentence goes under
+// the sentence instead of cutting it off: the line's stream is already on
+// the connection, so the song joins it rather than replacing it.
+func (mixer *Mixer) SetBed(bed io.Reader) (int64, bool) {
+	mixer.lock.Lock()
+	defer mixer.lock.Unlock()
+
+	if mixer.finished || mixer.closed || mixer.pending != nil || !mixer.bedDone {
+		return 0, false
+	}
+	mixer.pending = bed
+	return mixer.frames, true
+}
+
 // Read hands out the mixed audio one frame at a time.
 func (mixer *Mixer) Read(p []byte) (int, error) {
 	for mixer.pos >= len(mixer.frame) {
 		if err := mixer.fill(); err != nil {
 			return 0, err
 		}
+		mixer.lock.Lock()
+		mixer.frames++
+		mixer.lock.Unlock()
 	}
 
 	n := copy(p, mixer.frame[mixer.pos:])
@@ -105,6 +134,9 @@ func (mixer *Mixer) Close() error {
 		close(line.done)
 	}
 
+	if closer, ok := mixer.pending.(io.Closer); ok {
+		_ = closer.Close()
+	}
 	if closer, ok := mixer.bed.(io.Closer); ok {
 		return closer.Close()
 	}
@@ -116,6 +148,7 @@ func (mixer *Mixer) Close() error {
 // left to say.
 func (mixer *Mixer) fill() error {
 	for {
+		mixer.takeBed()
 		mixer.readBed()
 
 		said, ok := mixer.readSpeech()
@@ -145,6 +178,17 @@ func (mixer *Mixer) fill() error {
 		mixer.finished = true
 		mixer.lock.Unlock()
 		return io.EOF
+	}
+}
+
+// takeBed picks up a bed handed over since the last frame.
+func (mixer *Mixer) takeBed() {
+	mixer.lock.Lock()
+	defer mixer.lock.Unlock()
+
+	if mixer.pending != nil {
+		mixer.bed, mixer.pending = mixer.pending, nil
+		mixer.bedDone = false
 	}
 }
 
