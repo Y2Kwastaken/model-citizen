@@ -19,30 +19,14 @@ import (
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
 )
 
-const (
-	// retained voice length per speaker
-	listenWindow = 30 * time.Second
-	// a wake has this much context
-	contextWindow = 10 * time.Second
-	// how long of quiet before processing is hit
-	commandQuiet = 350 * time.Millisecond
-	// how long can be spent on speaking
-	commandMax = 10 * time.Second
-	// no "incoherence"
-	minUtterance      = 400 * time.Millisecond
-	wakeDebounce      = 3 * time.Second
-	captureLanguage   = "en"
-	transcribeTimeout = 30 * time.Second
-	// synthesis plus playback of one reply
-	speakTimeout = 60 * time.Second
-)
-
 // ears is the per-guild listening state. The brain and wake word are set
 // once by Start; listeners come and go with voice connections.
 var ears struct {
 	brain     model.LanguageModel
 	wake      *audio.WakeWord
 	threshold float32
+	// how long the whole chat step of a voice reply may take
+	replyTimeout time.Duration
 
 	mu      sync.Mutex
 	byGuild map[snowflake.ID]*audio.Listener
@@ -59,7 +43,7 @@ type line struct {
 
 // listen installs a Listener on a freshly opened connection and answers its wake word triggers.
 func listen(client *bot.Client, guild snowflake.ID, channel snowflake.ID, conn voice.Conn) {
-	listener := audio.NewListener(ears.wake, listenWindow, ears.threshold, wakeDebounce)
+	listener := audio.NewListener(ears.wake, hearing.ListenWindow, ears.threshold, hearing.WakeDebounce)
 	conn.SetOpusFrameReceiver(listener)
 
 	ears.mu.Lock()
@@ -127,7 +111,7 @@ func selfName(client *bot.Client, guild snowflake.ID) string {
 // is still talking; only the command itself waits for them to finish.
 func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, listener *audio.Listener, trigger audio.Trigger, chat bool) {
 	if trigger.User != snowflake.ID(0) {
-		slog.Info("wake word",
+		slog.Debug("wake word",
 			slog.String("guild_id", guild.String()),
 			slog.String("user_id", trigger.User.String()),
 			slog.Float64("score", float64(trigger.Score)),
@@ -135,7 +119,7 @@ func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, li
 	}
 
 	// we have 90 seconds to react
-	ctx, cancel := context.WithTimeout(context.Background(), commandMax+transcribeTimeout+30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hearing.CommandMax+hearing.TranscribeTimeout+ears.replyTimeout)
 	defer cancel()
 
 	// send a typing indicator
@@ -145,13 +129,13 @@ func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, li
 		}
 	}()
 
-	early := unheard(guild, closedBefore(listener.Context(trigger.At, contextWindow), trigger.At))
+	early := unheard(guild, closedBefore(listener.Context(trigger.At, hearing.ContextWindow), trigger.At))
 	earlyLines := make(chan []line, 1)
 	go func() { earlyLines <- transcribeUtterances(ctx, client, guild, early) }()
 
 	finished := awaitQuiet(ctx, listener, trigger.User, trigger.At)
 	markHeard(guild, finished)
-	late := excluding(listener.Context(finished, contextWindow+finished.Sub(trigger.At)), early)
+	late := excluding(listener.Context(finished, hearing.ContextWindow+finished.Sub(trigger.At)), early)
 	lines := append(<-earlyLines, transcribeUtterances(ctx, client, guild, late)...)
 	slices.SortFunc(lines, func(a, b line) int { return a.At.Compare(b.At) })
 	transcribed := time.Now()
@@ -194,7 +178,7 @@ func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, li
 	said := make(chan spoken, 1)
 	if ears.brain.HasFeature(model.TTS) {
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), speakTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), hearing.SpeakTimeout)
 			defer cancel()
 			pcm, err := synthesize(ctx, ears.brain, reply)
 			ready := time.Now()
@@ -258,7 +242,7 @@ func excluding(utterances []audio.Utterance, done []audio.Utterance) []audio.Utt
 	return slices.DeleteFunc(utterances, func(u audio.Utterance) bool { return seen[key{u.User, u.Start}] })
 }
 
-// awaitQuiet returns once user has been silent for commandQuiet, or commandMax
+// awaitQuiet returns once user has been silent for CommandQuiet, or CommandMax
 // after since. That is when the command that followed the wake word is over.
 func awaitQuiet(ctx context.Context, listener *audio.Listener, user snowflake.ID, since time.Time) time.Time {
 	ticker := time.NewTicker(20 * time.Millisecond)
@@ -269,7 +253,7 @@ func awaitQuiet(ctx context.Context, listener *audio.Listener, user snowflake.ID
 			return time.Now()
 		case now := <-ticker.C:
 			last, ok := listener.LastHeard(user)
-			if !ok || now.Sub(last) >= commandQuiet || now.Sub(since) >= commandMax {
+			if !ok || now.Sub(last) >= hearing.CommandQuiet || now.Sub(since) >= hearing.CommandMax {
 				return now
 			}
 		}
@@ -288,7 +272,7 @@ func transcribeUtterances(ctx context.Context, client *bot.Client, guild snowfla
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, transcribeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, hearing.TranscribeTimeout)
 	defer cancel()
 
 	names := make(chan map[snowflake.ID]string, 1)
@@ -297,13 +281,13 @@ func transcribeUtterances(ctx context.Context, client *bot.Client, guild snowfla
 	texts := make([]string, len(utterances))
 	var wg sync.WaitGroup
 	for i, u := range utterances {
-		if u.Duration() < minUtterance {
+		if u.Duration() < hearing.MinUtterance {
 			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			text, err := ears.brain.Transcribe(ctx, model.Clip{Data: audio.EncodeWAV(u.PCM), Format: "wav", Language: captureLanguage})
+			text, err := ears.brain.Transcribe(ctx, model.Clip{Data: audio.EncodeWAV(u.PCM), Format: "wav", Language: hearing.Language})
 			if err != nil {
 				slog.Error("transcribing utterance", slog.String("user_id", u.User.String()), slog.Any("err", err))
 				return

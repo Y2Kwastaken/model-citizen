@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
@@ -26,12 +27,40 @@ import (
 type Listening struct {
 	Wake      *audio.WakeWord
 	Threshold float32 // score that counts as the wake word
+
+	ListenWindow  time.Duration // retained voice length per speaker
+	ContextWindow time.Duration // how much before a wake goes with it
+	CommandQuiet  time.Duration // silence that ends a command
+	CommandMax    time.Duration // longest command listened to
+	MinUtterance  time.Duration // shorter is noise
+	WakeDebounce  time.Duration
+	Language      string // empty lets the transcriber guess
+
+	TranscribeTimeout time.Duration
+	SpeakTimeout      time.Duration // synthesis plus playback of one reply
+}
+
+// hearing is set once by Start.
+var hearing Listening
+
+// Music is how songs are queued, cached and played.
+type Music struct {
+	MaxQueueLength  int // zero or less is unlimited
+	CacheRetention  int // zero or less keeps every download
+	PrefetchAhead   int
+	PlaybackTimeout time.Duration
+	Volume          float32 // how loud songs play, 0 to 1
+	DuckedGain      float32 // music volume under the bot's speech
 }
 
 // Start connects the bot.
-func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string, listening Listening) (*bot.Client, error) {
+func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string, replyTimeout time.Duration, listening Listening, musicTunes Music) (*bot.Client, error) {
 	slog.Info("disgo version", slog.String("version", disgo.Version))
-	ears.brain, ears.wake, ears.threshold = brain, listening.Wake, listening.Threshold
+	ears.brain, ears.wake, ears.threshold, ears.replyTimeout = brain, listening.Wake, listening.Threshold, replyTimeout
+	hearing = listening
+	tunes = musicTunes
+	audio.DuckedGain = musicTunes.DuckedGain
+	audio.MusicVolume = musicTunes.Volume
 
 	token := os.Getenv(tokenVariable)
 	if token == "" {
@@ -73,7 +102,7 @@ func Start(ctx context.Context, brain model.LanguageModel, tokenVariable string,
 		}),
 		bot.WithEventListenerFunc(handleVoiceLeaveEvent),
 		bot.WithEventListenerFunc(func(e *events.GuildMessageCreate) {
-			agent.HandleMessage(brain, e)
+			agent.HandleMessage(brain, e, replyTimeout)
 		}),
 	)
 

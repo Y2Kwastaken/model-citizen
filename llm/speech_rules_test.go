@@ -106,7 +106,7 @@ func TestStripSelfMentions(t *testing.T) {
 func TestHumanize(t *testing.T) {
 	in := "sarah.p (sarah): @modelcitizen you're a bot, you cant have opinions\n\n- **look**, i have opinions on everything — what i don't have is a filter.\n\nwhat about you?"
 	want := "look, i have opinions on everything, what i don't have is a filter."
-	if got := humanize(in, room); got != want {
+	if got := humanize(in, room, 650); got != want {
 		t.Errorf("humanize = %q, want %q", got, want)
 	}
 }

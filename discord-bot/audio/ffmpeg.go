@@ -20,14 +20,15 @@ func (p *process) Close() error {
 	return p.command.Wait()
 }
 
-// musicVolume scales songs down; mastered music runs about 10dB louder than the bot's voice.
-const musicVolume = "0.3"
+// MusicVolume scales songs down; mastered music runs about 10dB louder than the bot's voice.
+// Set once before any song plays.
+var MusicVolume float32 = 0.3
 
 // DecodeFile spawns ffmpeg to turn the song at path into s16le at Discord's
-// rate and channel count, turned down to musicVolume. The reader is the
+// rate and channel count, turned down to MusicVolume. The reader is the
 // process's stdout.
 func DecodeFile(path string) (io.ReadCloser, error) {
-	return decode("-i", path, nil, "-af", "volume="+musicVolume)
+	return decode("-i", path, nil, "-af", "volume="+strconv.FormatFloat(float64(MusicVolume), 'f', -1, 32))
 }
 
 // DecodeReader is DecodeFile for audio that is already in hand rather than on

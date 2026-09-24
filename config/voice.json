@@ -1,0 +1,11 @@
+{
+    "language": "en",
+    "listen_window_seconds": 30,
+    "context_window_seconds": 10,
+    "command_quiet_ms": 350,
+    "command_max_seconds": 10,
+    "min_utterance_ms": 400,
+    "wake_debounce_seconds": 3,
+    "transcribe_timeout_seconds": 30,
+    "speak_timeout_seconds": 60
+}

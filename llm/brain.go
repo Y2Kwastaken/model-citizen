@@ -17,12 +17,6 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 )
 
-const (
-	perModelTimeout = 10 * time.Second
-	// tool calls in one reply
-	maxToolRounds = 2
-)
-
 // Config is where each rotation comes from.
 type Config struct {
 	// the personality prompt and messages kept per channel, from config/model.json
@@ -31,6 +25,18 @@ type Config struct {
 	HistorySize    int
 	Temperature    float64
 	TopP           float64
+
+	MaxReplyRunes  int
+	MaxReplyTokens int
+	// extra tokens while tools are offered, deciding on a call takes thinking
+	ToolRoundBonus int
+	MaxRedraws     int
+	// tool calls in one reply
+	MaxToolRounds       int
+	ShortTermMemorySize int
+	// bounds each model attempt
+	PerModelTimeout time.Duration
+	Rotation        model.Rotation
 
 	TextModelsFile   string
 	VoiceModelsFile  string
@@ -45,6 +51,12 @@ type BrainProvider struct {
 	guildPrompt map[snowflake.ID]string
 	temperature float64
 	topP        float64
+
+	limits          replyLimits
+	maxReplyTokens  int
+	toolRoundBonus  int
+	maxToolRounds   int
+	perModelTimeout time.Duration
 	// a feature is supported iff it has a rotation
 	rotations map[model.ModelFeature]model.ModelManager
 	history   model.HistoryProvider
@@ -57,19 +69,19 @@ type BrainProvider struct {
 func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 	rotations := make(map[model.ModelFeature]model.ModelManager)
 
-	text, err := model.NewModelManager(config.TextModelsFile, model.Chat)
+	text, err := model.NewModelManager(config.TextModelsFile, model.Chat, config.Rotation)
 	if err != nil {
 		return nil, fmt.Errorf("chat models %s: %w", config.TextModelsFile, err)
 	}
 	rotations[model.Chat] = text
 
-	if voice, err := model.NewModelManager(config.VoiceModelsFile, model.STT); err != nil {
+	if voice, err := model.NewModelManager(config.VoiceModelsFile, model.STT, config.Rotation); err != nil {
 		slog.Warn("transcription disabled", slog.String("file", config.VoiceModelsFile), slog.Any("error", err))
 	} else {
 		rotations[model.STT] = voice
 	}
 
-	if speech, err := model.NewModelManager(config.SpeechModelsFile, model.TTS); err != nil {
+	if speech, err := model.NewModelManager(config.SpeechModelsFile, model.TTS, config.Rotation); err != nil {
 		slog.Warn("speech disabled", slog.String("file", config.SpeechModelsFile), slog.Any("error", err))
 	} else {
 		rotations[model.TTS] = speech
@@ -81,10 +93,16 @@ func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 		guildPrompt:   make(map[snowflake.ID]string),
 		temperature:   config.Temperature,
 		topP:          config.TopP,
-		rotations:     rotations,
-		history:       model.NewChatHistory(config.HistorySize),
-		tools:         model.NewModelTools(),
-		memory:        model.NewMemorySet(map[model.MemoryType]model.MemoryProvider{model.SHORT_TERM: model.NewShortTerm(-1)}),
+		limits:        replyLimits{runes: config.MaxReplyRunes, redraws: config.MaxRedraws},
+
+		maxReplyTokens:  config.MaxReplyTokens,
+		toolRoundBonus:  config.ToolRoundBonus,
+		maxToolRounds:   config.MaxToolRounds,
+		perModelTimeout: config.PerModelTimeout,
+		rotations:       rotations,
+		history:         model.NewChatHistory(config.HistorySize),
+		tools:           model.NewModelTools(),
+		memory:          model.NewMemorySet(map[model.MemoryType]model.MemoryProvider{model.SHORT_TERM: model.NewShortTerm(config.ShortTermMemorySize)}),
 	}, nil
 }
 
@@ -110,6 +128,7 @@ func (provider *BrainProvider) MemorySet() model.MemorySet {
 // implement tweaks
 
 func (provider *BrainProvider) SetPersonality(guild snowflake.ID, name string) error {
+	name = strings.ToLower(name)
 	if _, ok := provider.systemPrompts[name]; !ok {
 		return fmt.Errorf("no known system prompt %s", name)
 	}
@@ -168,7 +187,7 @@ func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (s
 		ReasoningEffort: shared.ReasoningEffortNone,
 		Temperature:     openai.Float(provider.temperature),
 		TopP:            openai.Float(provider.topP),
-		MaxTokens:       openai.Int(maxReplyTokens),
+		MaxTokens:       openai.Int(int64(provider.maxReplyTokens)),
 	}, orderedHistory, origin)
 }
 
@@ -177,7 +196,7 @@ func (provider *BrainProvider) Transcribe(ctx context.Context, clip model.Clip) 
 		return "", fmt.Errorf("this model does not support transcription")
 	}
 
-	text, err := attempt(ctx, provider.rotations[model.STT], func(ctx context.Context, selected model.Model) (string, error) {
+	text, err := attempt(ctx, provider.rotations[model.STT], provider.perModelTimeout, func(ctx context.Context, selected model.Model) (string, error) {
 		// a service with its own API brought its own way of being asked
 		if selected.Transcribe != nil {
 			return selected.Transcribe(ctx, clip)
@@ -213,19 +232,19 @@ func (provider *BrainProvider) Speak(ctx context.Context, text string) (model.Cl
 		return model.Clip{}, fmt.Errorf("this model does not speak")
 	}
 
-	return attempt(ctx, provider.rotations[model.TTS], func(ctx context.Context, selected model.Model) (model.Clip, error) {
+	return attempt(ctx, provider.rotations[model.TTS], provider.perModelTimeout, func(ctx context.Context, selected model.Model) (model.Clip, error) {
 		return selected.Speak(ctx, text)
 	})
 }
 
 func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCompletionNewParams, history []model.Message, origin model.Origin) (string, error) {
 	for round := 0; ; round++ {
-		if round >= maxToolRounds {
+		if round >= provider.maxToolRounds {
 			params.Tools = nil
 		}
-		params.MaxTokens = openai.Int(maxReplyTokens)
+		params.MaxTokens = openai.Int(int64(provider.maxReplyTokens))
 		if params.Tools != nil {
-			params.MaxTokens = openai.Int(maxReplyTokens + toolRoundBonus)
+			params.MaxTokens = openai.Int(int64(provider.maxReplyTokens + provider.toolRoundBonus))
 		}
 
 		completion, err := provider.chatOnce(ctx, params)
@@ -240,8 +259,8 @@ func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCom
 		message := completion.Choices[0].Message
 		if len(message.ToolCalls) == 0 || params.Tools == nil {
 			params.Tools = nil
-			params.MaxTokens = openai.Int(maxReplyTokens)
-			return draw(ctx, provider.chatOnce, params, history, completion)
+			params.MaxTokens = openai.Int(int64(provider.maxReplyTokens))
+			return draw(ctx, provider.chatOnce, params, history, completion, provider.limits)
 		}
 
 		params.Messages = append(params.Messages, message.ToParam())
@@ -250,28 +269,28 @@ func (provider *BrainProvider) doChat(ctx context.Context, params openai.ChatCom
 			result := provider.tools.CallTool(ctx, call.Function, origin)
 			params.Messages = append(params.Messages, openai.ToolMessage(result, call.ID))
 		}
+		// a switch tool call takes effect on this reply, not the next one
+		params.Messages[0] = openai.SystemMessage(provider.systemPrompt(origin.Guild))
 	}
 }
 
 func (provider *BrainProvider) chatOnce(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-	return attempt(ctx, provider.rotations[model.Chat], func(ctx context.Context, selected model.Model) (*openai.ChatCompletion, error) {
+	return attempt(ctx, provider.rotations[model.Chat], provider.perModelTimeout, func(ctx context.Context, selected model.Model) (*openai.ChatCompletion, error) {
 		params.Model = selected.Name
-		// ReasoningEffortNone is ignored by the NIM models. enable_thinking is
-		// the vllm switch nemotron honours; muse-glimmer cannot stop thinking
-		// and only takes reasoning_strength. ollama drops unknown fields.
-		return selected.Client.Chat.Completions.New(ctx, params,
-			option.WithJSONSet("chat_template_kwargs", map[string]any{
-				"enable_thinking":    false,
-				"thinking":           false,
-				"reasoning_strength": "low",
-			}))
+		// ReasoningEffortNone is ignored by the NIM models, so they get
+		// chat_template_kwargs from the models file instead
+		var opts []option.RequestOption
+		if selected.TemplateKwargs != nil {
+			opts = append(opts, option.WithJSONSet("chat_template_kwargs", selected.TemplateKwargs))
+		}
+		return selected.Client.Chat.Completions.New(ctx, params, opts...)
 	})
 }
 
 // attempt runs call against the rotation until a model answers, timing each
 // try and handing the verdict to the manager. A model that errors is benched
 // and the next one tried; the context's own deadline ends the loop early.
-func attempt[T any](ctx context.Context, models model.ModelManager, call func(context.Context, model.Model) (T, error)) (T, error) {
+func attempt[T any](ctx context.Context, models model.ModelManager, timeout time.Duration, call func(context.Context, model.Model) (T, error)) (T, error) {
 	var zero T
 	var lastErr error
 	tried := make(map[int]bool, models.Count())
@@ -283,7 +302,7 @@ func attempt[T any](ctx context.Context, models model.ModelManager, call func(co
 		}
 		tried[selected.Index] = true
 
-		attemptCtx, cancel := context.WithTimeout(ctx, perModelTimeout)
+		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 		start := time.Now()
 		result, err := call(attemptCtx, selected)
 		latency := time.Since(start)

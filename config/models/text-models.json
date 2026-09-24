@@ -2,7 +2,10 @@
     {
         "name": "nvidia/nemotron-3-super-120b-a12b",
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "auth_key": "MODEL_AUTH_KEY"
+        "auth_key": "MODEL_AUTH_KEY",
+        "chat_template_kwargs": {
+            "enable_thinking": false
+        }
     },
     {
         "name": "qwen/qwen3.8-27b",

@@ -22,13 +22,15 @@ func TestCleanReply(t *testing.T) {
 		{"`modelcitizen: not much, you`</think>normies trying to figure it out", "normies trying to figure it out"},
 		{"<think>\nlet me think\n</think>\nlmao no", "lmao no"},
 		{"<think>lmao no", "lmao no"},
+		{"thought\n<channel|>fine, i wrote it down.", "fine, i wrote it down."},
+		{"<|channel>thought\nhm\n<channel|>lmao no", "lmao no"},
 		{"[12:04:31] nah", "nah"},
 		{"noted, quincy's a bitch\n[19:54:44]Memory [miles_dev]: TomTheBomb (Quincy) is a bitch", "noted, quincy's a bitch"},
 		{"thats a mailing address with commitment issues. [19:55:16]Memory [miles_dev]: Noah is Noah Aney", "thats a mailing address with commitment issues."},
 		{"Memory [miles_dev]: he said it first", ""},
 	}
 	for _, c := range cases {
-		if got := cleanReply(c.in, history); got != c.want {
+		if got := cleanReply(c.in, history, 650); got != c.want {
 			t.Errorf("cleanReply(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}

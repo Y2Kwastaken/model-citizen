@@ -8,12 +8,14 @@ import (
 	"time"
 )
 
+var testRotation = Rotation{Reward: 2 * time.Second, Punish: 5 * time.Second, Kill: 10 * time.Second, Parole: 5 * time.Minute}
+
 func testProvider(names ...string) *ModelProvider {
 	models := make([]Model, 0, len(names))
 	for i, name := range names {
 		models = append(models, Model{Name: name, Index: i})
 	}
-	return &ModelProvider{models: models}
+	return &ModelProvider{models: models, rotation: testRotation}
 }
 
 func TestReadModelsFile(t *testing.T) {
@@ -85,15 +87,15 @@ func TestFailRotatesOffTheDeadModel(t *testing.T) {
 func TestJudgeSwapsOnceSlownessAddsUp(t *testing.T) {
 	provider := testProvider("one", "two")
 
-	// punish_threshold costs 2 a call, so it takes five before the swap
+	// a punished call costs 2 a call, so it takes five before the swap
 	for i := range 4 {
-		provider.Judge(provider.Model(), punish_threshold)
+		provider.Judge(provider.Model(), testRotation.Punish)
 		if got := provider.Model().Name; got != "one" {
 			t.Fatalf("swapped after %d slow calls, too early", i+1)
 		}
 	}
 
-	provider.Judge(provider.Model(), punish_threshold)
+	provider.Judge(provider.Model(), testRotation.Punish)
 	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two once one crossed the skip score", got)
 	}
@@ -101,7 +103,7 @@ func TestJudgeSwapsOnceSlownessAddsUp(t *testing.T) {
 
 func TestJudgeKillsOutrightPastTheKillThreshold(t *testing.T) {
 	provider := testProvider("one", "two")
-	provider.Judge(provider.Model(), kill_threshold)
+	provider.Judge(provider.Model(), testRotation.Kill)
 	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two", got)
 	}
@@ -113,7 +115,7 @@ func TestJudgeKillsOutrightPastTheKillThreshold(t *testing.T) {
 func TestRewardIsFlooredAtZero(t *testing.T) {
 	provider := testProvider("one")
 	for range 10 {
-		provider.Judge(provider.Model(), reward_threshold)
+		provider.Judge(provider.Model(), testRotation.Reward)
 	}
 	if score := provider.models[0].score; score != 0 {
 		t.Fatalf("score = %d, want 0 so credit cannot be banked", score)
@@ -127,7 +129,7 @@ func TestStaleVerdictDoesNotMoveTheRotation(t *testing.T) {
 	stale := provider.Model()
 	provider.Rotate()
 
-	provider.Judge(stale, kill_threshold)
+	provider.Judge(stale, testRotation.Kill)
 	if got := provider.Model().Name; got != "two" {
 		t.Fatalf("selected = %s, want two: a late verdict for one should not rotate again", got)
 	}
@@ -145,7 +147,7 @@ func TestParoleBringsABenchedModelBack(t *testing.T) {
 	}
 
 	// one has served its time; rotating off two should pick it back up
-	provider.models[0].benched = time.Now().Add(-parole_period - time.Second)
+	provider.models[0].benched = time.Now().Add(-testRotation.Parole - time.Second)
 	provider.Rotate()
 
 	if got := provider.Model().Name; got != "one" {

@@ -81,7 +81,7 @@ func TestMixerDucksTheBedUnderSpeech(t *testing.T) {
 	}
 
 	// while talking: the bed ducked, plus the speech
-	if want := int16(1000*duckedGain) + 100; sampleAt(got, 0) != want {
+	if want := int16(1000*DuckedGain) + 100; sampleAt(got, 0) != want {
 		t.Errorf("mixed sample = %d, want %d", sampleAt(got, 0), want)
 	}
 	// after: the bed at full volume again
@@ -190,7 +190,7 @@ func TestMixerTakesABedMidLine(t *testing.T) {
 	if len(rest) != 2*FrameBytes {
 		t.Fatalf("read %d more bytes, want %d", len(rest), 2*FrameBytes)
 	}
-	if want := int16(1000*duckedGain) + 100; sampleAt(rest, 0) != want {
+	if want := int16(1000*DuckedGain) + 100; sampleAt(rest, 0) != want {
 		t.Errorf("mixed sample = %d, want %d", sampleAt(rest, 0), want)
 	}
 }

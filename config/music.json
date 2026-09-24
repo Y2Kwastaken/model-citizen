@@ -1,0 +1,8 @@
+{
+    "max_queue_length": 100,
+    "cache_retention": 25,
+    "prefetch_ahead": 2,
+    "playback_timeout_seconds": 120,
+    "volume": 0.3,
+    "ducked_gain": 0.25
+}

@@ -22,12 +22,11 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-const (
-	maxReplyRunes  = 650 // one thought; the prompt says shorter is always better
-	maxReplyTokens = 250 // enough to reach maxReplyRunes, no point generating what clip throws away
-	toolRoundBonus = 350 // extra while tools are offered: deciding on a call takes thinking that 250 cuts off
-	maxRetries     = 2   // redraws per reply when the judge objects
-)
+// replyLimits bound what one reply may be, from config/model.json.
+type replyLimits struct {
+	runes   int // one thought; the prompt says shorter is always better
+	redraws int // redraws per reply when the judge objects
+}
 
 var (
 	// list markers, headings, "step 1:" labels, and divider lines
@@ -202,11 +201,11 @@ var spokenAt = regexp.MustCompile(`^\s*\[\d{2}:\d{2}:\d{2}\]\s*`)
 // tool being called. The note is lost either way, it just never ships.
 var writtenMemory = regexp.MustCompile(`(?im)\s*(?:\[\d{2}:\d{2}:\d{2}\])?\s*memory\s*\[[^\]]*\]:?.*$`)
 
-func cleanReply(reply string, history []model.Message) string {
+func cleanReply(reply string, history []model.Message, maxRunes int) string {
 	reply = stripThinking(reply)
 	reply = spokenAt.ReplaceAllString(reply, "")
 	reply = writtenMemory.ReplaceAllString(reply, "")
-	return humanize(reply, history)
+	return humanize(reply, history, maxRunes)
 }
 
 // stripThinking drops a reasoning block. brain.go asks for
@@ -214,12 +213,15 @@ func cleanReply(reply string, history []model.Message) string {
 // often arrives as "<think>...</think>answer". A lone opening tag is a stray
 // mark on an ordinary reply and only the tag goes; whether an unclosed block
 // is that or thinking cut off by MaxTokens is not decidable here, so draw
-// settles it where the finish reason is in hand.
+// settles it where the finish reason is in hand. gemma closes its block with
+// <channel|>, and its opening <|channel> often never makes it into content.
 func stripThinking(reply string) string {
-	if _, rest, ok := strings.Cut(reply, "</think>"); ok {
-		reply = rest
+	for _, closing := range []string{"</think>", "<channel|>"} {
+		if _, rest, ok := strings.Cut(reply, closing); ok {
+			reply = rest
+		}
 	}
-	return strings.ReplaceAll(reply, "<think>", "")
+	return strings.ReplaceAll(strings.ReplaceAll(reply, "<think>", ""), "<|channel>", "")
 }
 
 // scratchNudge answers a draft that was nothing but the model's own working.
@@ -258,11 +260,11 @@ func reasoningLen(message openai.ChatCompletionMessage) int {
 
 // humanize is the full pass, in dependency order: transcript noise first, then
 // structure, then the length rules on what is left.
-func humanize(reply string, history []model.Message) string {
+func humanize(reply string, history []model.Message, maxRunes int) string {
 	reply = untranscript(reply, history)
 	reply = typography.Replace(structure.ReplaceAllString(reply, ""))
 	reply = blankLines.ReplaceAllString(reply, "\n")
-	return clip(unhook(reply), maxReplyRunes)
+	return clip(unhook(reply), maxRunes)
 }
 
 // completer runs one chat completion. It is a function rather than a client so
@@ -274,7 +276,7 @@ type completer func(ctx context.Context, params openai.ChatCompletionNewParams) 
 // asks again with a system nudge saying what went wrong. The last draw is
 // kept either way, and a redraw that fails (the deadline, usually) keeps the
 // draft before it.
-func draw(ctx context.Context, complete completer, params openai.ChatCompletionNewParams, history []model.Message, completion *openai.ChatCompletion) (string, error) {
+func draw(ctx context.Context, complete completer, params openai.ChatCompletionNewParams, history []model.Message, completion *openai.ChatCompletion, limits replyLimits) (string, error) {
 	var reply string
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
@@ -288,7 +290,7 @@ func draw(ctx context.Context, complete completer, params openai.ChatCompletionN
 			return "", fmt.Errorf("model returned no choices")
 		}
 		raw := completion.Choices[0].Message.Content
-		reply = cleanReply(raw, history)
+		reply = cleanReply(raw, history, limits.runes)
 
 		nudge := judge(reply)
 		// Being told the draft was empty means nothing to a model that wrote
@@ -299,7 +301,7 @@ func draw(ctx context.Context, complete completer, params openai.ChatCompletionN
 			// the tokens went somewhere; show where
 			slog.Info("draft was all scratch", slog.String("choice", completion.Choices[0].RawJSON()))
 		}
-		if nudge == "" || attempt >= maxRetries {
+		if nudge == "" || attempt >= limits.redraws {
 			return reply, nil
 		}
 		// a redraw is another full round trip, so it is worth seeing

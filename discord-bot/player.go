@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -18,22 +17,14 @@ import (
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/music"
 )
 
-const (
-	maxQueueLength = 100
-	cacheRetention = 25
-
-	// prefetchAhead is how many upcoming songs to download in the background.
-	prefetchAhead = 2
-
-	// playbackTimeout bounds a download plus ffmpeg startup.
-	playbackTimeout = 2 * time.Minute
-)
+// tunes set once by Start, from config/music.json
+var tunes Music
 
 // One Downloader serves every guild: the cache directory is shared, so a second
 // instance would mean two eviction policies fighting over the same files.
 // sync.OnceValues builds it on first use and reuses it (or the error) after.
 var getDownloader = sync.OnceValues(func() (*music.Downloader, error) {
-	return music.NewDownloader(music.CacheDir, cacheRetention)
+	return music.NewDownloader(music.CacheDir, tunes.CacheRetention)
 })
 
 var (
@@ -227,7 +218,7 @@ func enqueue(ctx context.Context, client *bot.Client, guild snowflake.ID, user s
 // cancellation on purpose: the caller has usually already answered by then.
 func startPlaybackAsync(parent context.Context, guild snowflake.ID, queued *queued, report func(music.Song, error)) {
 	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), playbackTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), tunes.PlaybackTimeout)
 		defer cancel()
 
 		song, reader, err := startPlayback(ctx, queued.conn, queued.player)
@@ -307,7 +298,7 @@ func startPlayback(ctx context.Context, conn voice.Conn, player *music.MusicProv
 	player.SetPlaying(true)
 
 	// Warm the cache for what comes next while this song plays.
-	player.Prefetch(ctx, downloader, prefetchAhead)
+	player.Prefetch(ctx, downloader, tunes.PrefetchAhead)
 
 	return song, reader, nil
 }
@@ -347,7 +338,7 @@ func advanceToPlayable(conn voice.Conn, player *music.MusicProvider, guild snowf
 			return nil, false
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), playbackTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), tunes.PlaybackTimeout)
 		_, reader, err := startPlayback(ctx, conn, player)
 		cancel()
 
@@ -379,7 +370,7 @@ func playerFor(guild snowflake.ID) *music.MusicProvider {
 		return existing
 	}
 
-	created := music.NewMusicProvider(maxQueueLength, cacheRetention)
+	created := music.NewMusicProvider(tunes.MaxQueueLength, tunes.CacheRetention)
 	players[guild] = created
 	return created
 }

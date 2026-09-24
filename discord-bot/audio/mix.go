@@ -10,8 +10,8 @@ import (
 
 // duckedGain is how much of the bed survives while the bot is talking over it.
 // Speech loses to music otherwise: a track is mastered loud and a synthesised
-// line is not.
-const duckedGain = 0.25
+// line is not. Set once before any mixer runs.
+var DuckedGain float32 = 0.25
 
 // Mixer is a PCM source that plays the bot's speech over whatever else is
 // playing.
@@ -257,7 +257,7 @@ func (mixer *Mixer) retire(line *speech) {
 // worth allocating that often.
 func mixdown(bed []byte, said []byte) {
 	for i := 0; i+1 < len(bed) && i+1 < len(said); i += 2 {
-		under := float32(int16(binary.LittleEndian.Uint16(bed[i:]))) * duckedGain
+		under := float32(int16(binary.LittleEndian.Uint16(bed[i:]))) * DuckedGain
 		over := int32(int16(binary.LittleEndian.Uint16(said[i:])))
 		binary.LittleEndian.PutUint16(bed[i:], uint16(clamp(int32(under)+over)))
 	}

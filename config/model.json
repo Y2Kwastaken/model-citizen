@@ -14,5 +14,19 @@
     "wake_word_threshold": 0.12,
     "wake_word_directory": "wakeword",
     "wake_word_file": "hey_model.onnx",
-    "wake_word_runtime": "/usr/local/lib/libonnxruntime.so"
+    "wake_word_runtime": "/usr/local/lib/libonnxruntime.so",
+    "max_reply_runes": 650,
+    "max_reply_tokens": 250,
+    "tool_round_bonus": 350,
+    "max_redraws": 2,
+    "max_tool_rounds": 2,
+    "short_term_memory_size": 10,
+    "reply_timeout_seconds": 30,
+    "per_model_timeout_seconds": 10,
+    "rotation": {
+        "reward_seconds": 2,
+        "punish_seconds": 5,
+        "kill_seconds": 10,
+        "parole_seconds": 300
+    }
 }

@@ -16,7 +16,8 @@ import (
 
 var mentionPattern = regexp.MustCompile(`<@[!&]?\d+>`)
 
-func HandleMessage(brain model.LanguageModel, event *events.GuildMessageCreate) {
+// HandleMessage records event and replies when the bot is addressed, giving up after replyTimeout.
+func HandleMessage(brain model.LanguageModel, event *events.GuildMessageCreate, replyTimeout time.Duration) {
 	message := event.Message
 
 	appendHistory(brain, message, event.Client().ID())
@@ -28,11 +29,11 @@ func HandleMessage(brain model.LanguageModel, event *events.GuildMessageCreate) 
 		Guild:   event.GuildID,
 		Channel: message.ChannelID,
 		Caller:  message.Author.ID,
-	}, event.MessageID)
+	}, event.MessageID, replyTimeout)
 }
 
-func respond(client *bot.Client, brain model.LanguageModel, origin model.Origin, messageID snowflake.ID) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func respond(client *bot.Client, brain model.LanguageModel, origin model.Origin, messageID snowflake.ID, replyTimeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), replyTimeout)
 	defer cancel()
 	channel := origin.Channel
 

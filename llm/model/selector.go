@@ -13,20 +13,21 @@ import (
 )
 
 const (
-	// a verdict, and the deadline a single request is given
-	kill_threshold   = 10 * time.Second
-	reward_threshold = 2 * time.Second
-	punish_threshold = 5 * time.Second
-
 	skip_score = 10
 
 	// What a service that needs no key at all -- one running locally, say --
 	// puts in auth_key, rather than naming a variable that will never be set.
 	noAuthKey = "NOP"
-
-	// an endpoint being down is nearly always temporary, so a bench expires
-	parole_period = 5 * time.Minute
 )
+
+// Rotation is how a request's latency is judged and how long a benched model
+// sits out. A bench expires since an endpoint being down is nearly always temporary.
+type Rotation struct {
+	Reward time.Duration
+	Punish time.Duration
+	Kill   time.Duration
+	Parole time.Duration
+}
 
 type ModelManager interface {
 	// Model reports the model requests should be sent to right now.
@@ -46,6 +47,7 @@ type ModelProvider struct {
 	lock     sync.RWMutex
 	selected int
 	models   []Model
+	rotation Rotation
 }
 
 type Model struct {
@@ -55,6 +57,8 @@ type Model struct {
 	// means the client above speaks OpenAI's shape.
 	Transcribe Transcriber
 	Speak      Speaker
+	// sent as chat_template_kwargs when set; strict APIs like groq reject it
+	TemplateKwargs map[string]any
 	// position in the provider's slice
 	Index int
 	score int
@@ -71,17 +75,24 @@ type jsonModel struct {
 	// Voice is which of a speech service's voices to use. Speech is the only
 	// feature where the model and the voice are separate things.
 	Voice string `json:"voice"`
+	// TemplateKwargs switches thinking off on vllm-style chat services.
+	TemplateKwargs map[string]any `json:"chat_template_kwargs"`
 }
 
 // NewModelManager builds a rotation from modelsFile for one feature. The
 // feature is what every service in the file is checked against, so a roster
 // that cannot do the job it was listed for fails here.
-func NewModelManager(modelsFile string, feature ModelFeature) (ModelManager, error) {
+func NewModelManager(modelsFile string, feature ModelFeature, rotation Rotation) (ModelManager, error) {
 	dataModels, err := readModelsFile(modelsFile)
 	if err != nil {
 		return nil, err
 	}
-	return newModelProvider(dataModels, feature)
+	provider, err := newModelProvider(dataModels, feature)
+	if err != nil {
+		return nil, err
+	}
+	provider.rotation = rotation
+	return provider, nil
 }
 
 func readModelsFile(modelsFile string) ([]jsonModel, error) {
@@ -145,10 +156,11 @@ func newModelProvider(dataModels []jsonModel, feature ModelFeature) (*ModelProvi
 				// we have our own retry policy
 				option.WithMaxRetries(0),
 			),
-			Name:       modelData.Name,
-			Transcribe: transcribe,
-			Speak:      speak,
-			Index:      len(models),
+			Name:           modelData.Name,
+			Transcribe:     transcribe,
+			Speak:          speak,
+			TemplateKwargs: modelData.TemplateKwargs,
+			Index:          len(models),
 		})
 	}
 
@@ -185,12 +197,12 @@ func (provider *ModelProvider) Judge(model Model, latency time.Duration) {
 
 	judged := &provider.models[model.Index]
 	switch {
-	case latency >= kill_threshold:
+	case latency >= provider.rotation.Kill:
 		judged.score = skip_score
-	case latency <= reward_threshold:
+	case latency <= provider.rotation.Reward:
 		// floor so no good favor is built
 		judged.score = max(judged.score-1, 0)
-	case latency >= punish_threshold:
+	case latency >= provider.rotation.Punish:
 		judged.score += 2
 	}
 
@@ -239,7 +251,7 @@ func nextModel(provider *ModelProvider) {
 	for i := 1; i <= length; i++ {
 		candidate := &provider.models[(provider.selected+i)%length]
 		if candidate.score >= skip_score {
-			if now.Sub(candidate.benched) < parole_period {
+			if now.Sub(candidate.benched) < provider.rotation.Parole {
 				continue
 			}
 			candidate.score = 0 // paroled, it gets judged fresh from here
