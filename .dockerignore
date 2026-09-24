@@ -1,4 +1,4 @@
 .git
-data
+.env
 wakeword/data
 wakeword/.venv

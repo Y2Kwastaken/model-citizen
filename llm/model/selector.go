@@ -84,16 +84,6 @@ func NewModelManager(modelsFile string, feature ModelFeature) (ModelManager, err
 	return newModelProvider(dataModels, feature)
 }
 
-// NewModelManagerFromEnvironment builds a one-model rotation from the named
-// environment variables.
-func NewModelManagerFromEnvironment(modelAuthKey string, modelNameKey string, modelLinkKey string) (ModelManager, error) {
-	dataModels, err := newJsonModelFromEnvironment(modelAuthKey, modelNameKey, modelLinkKey)
-	if err != nil {
-		return nil, err
-	}
-	return newModelProvider(dataModels, Chat)
-}
-
 func readModelsFile(modelsFile string) ([]jsonModel, error) {
 	file, err := os.Open(modelsFile)
 	if err != nil {
@@ -174,26 +164,6 @@ func newModelProvider(dataModels []jsonModel, feature ModelFeature) (*ModelProvi
 	return &ModelProvider{
 		selected: 0,
 		models:   models,
-	}, nil
-}
-
-func newJsonModelFromEnvironment(modelAuthKey string, modelNameKey string, modelLinkKey string) ([]jsonModel, error) {
-	modelName := os.Getenv(modelNameKey)
-	if modelName == "" {
-		return nil, fmt.Errorf("model name did not exist in environment at: %s", modelNameKey)
-	}
-
-	modelLink := os.Getenv(modelLinkKey)
-	if modelLink == "" {
-		return nil, fmt.Errorf("model link did not exist in environment at: %s", modelLinkKey)
-	}
-
-	return []jsonModel{
-		{
-			Name:    modelName,
-			BaseUrl: modelLink,
-			AuthKey: modelAuthKey,
-		},
 	}, nil
 }
 

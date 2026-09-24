@@ -9,6 +9,7 @@ require (
 	github.com/lrstanley/go-ytdlp v1.5.1
 	github.com/openai/openai-go/v3 v3.57.0
 	layeh.com/gopus v0.0.0-20210501142526-1ee02d434e32
+	github.com/yalue/onnxruntime_go v1.36.0
 )
 
 require (
@@ -26,7 +27,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/ulikunitz/xz v0.5.16 // indirect
-	github.com/yalue/onnxruntime_go v1.36.0 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )

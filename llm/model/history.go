@@ -9,10 +9,9 @@ import (
 type Sender string
 
 const (
-	User           Sender = "user"
-	Self           Sender = "self"
-	Memory         Sender = "memory"
-	maxHistorySize int    = 20
+	User   Sender = "user"
+	Self   Sender = "self"
+	Memory Sender = "memory"
 )
 
 // A message in a greater conversation.
@@ -33,6 +32,7 @@ type HistoryProvider interface {
 // A culmination of chat history sorted by channel id
 type chatHistoryProvider struct {
 	lock      sync.RWMutex
+	size      int
 	byChannel map[snowflake.ID]*channelHistory
 }
 
@@ -46,17 +46,17 @@ type channelHistory struct {
 	messages []Message
 }
 
-func NewChatHistory() HistoryProvider {
-	return &chatHistoryProvider{byChannel: make(map[snowflake.ID]*channelHistory)}
+func NewChatHistory(size int) HistoryProvider {
+	return &chatHistoryProvider{size: size, byChannel: make(map[snowflake.ID]*channelHistory)}
 }
 
-func newChannelHistory() *channelHistory {
+func newChannelHistory(size int) *channelHistory {
 	return &channelHistory{
 		head:     0,
 		tail:     0,
 		empty:    true,
-		maxSize:  maxHistorySize,
-		messages: make([]Message, maxHistorySize),
+		maxSize:  size,
+		messages: make([]Message, size),
 	}
 }
 
@@ -70,7 +70,7 @@ func (provider *chatHistoryProvider) InsertMessage(channel snowflake.ID, sender 
 		provider.lock.Lock()
 		// another writer may have created this channel between the read and the write lock
 		if history, ok = provider.byChannel[channel]; !ok {
-			history = newChannelHistory()
+			history = newChannelHistory(provider.size)
 			provider.byChannel[channel] = history
 		}
 		provider.lock.Unlock()

@@ -1,0 +1,18 @@
+{
+    "default_personality": "default",
+    "personalities": {
+        "default": "personalities/default-personality.md",
+        "smug": "personalities/smug-personality.md",
+        "degenerate": "personalities/degenerate-personality.md"
+    },
+    "text-models": "models/text-models.json",
+    "tts-models": "models/tts-models.json",
+    "stt-models": "models/stt-models.json",
+    "history_size": 20,
+    "temperature": 0.85,
+    "top_p": 0.9,
+    "wake_word_threshold": 0.12,
+    "wake_word_directory": "wakeword",
+    "wake_word_file": "hey_model.onnx",
+    "wake_word_runtime": "/usr/local/lib/libonnxruntime.so"
+}

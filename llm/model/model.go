@@ -1,6 +1,10 @@
 package model
 
-import "context"
+import (
+	"context"
+
+	"github.com/disgoorg/snowflake/v2"
+)
 
 type ModelFeature int
 
@@ -15,6 +19,9 @@ type LanguageModel interface {
 	MemorySet() MemorySet
 	Tools() ModelTools
 	History() HistoryProvider
+
+	// tweaks
+	SetPersonality(guild snowflake.ID, name string) error
 
 	// functions
 	Chat(ctx context.Context, origin Origin) (string, error)

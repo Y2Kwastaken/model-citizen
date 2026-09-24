@@ -20,10 +20,14 @@ func (p *process) Close() error {
 	return p.command.Wait()
 }
 
-// DecodeFile spawns ffmpeg to turn path into s16le at Discord's rate and
-// channel count. The reader is the process's stdout.
+// musicVolume scales songs down; mastered music runs about 10dB louder than the bot's voice.
+const musicVolume = "0.3"
+
+// DecodeFile spawns ffmpeg to turn the song at path into s16le at Discord's
+// rate and channel count, turned down to musicVolume. The reader is the
+// process's stdout.
 func DecodeFile(path string) (io.ReadCloser, error) {
-	return decode("-i", path, nil)
+	return decode("-i", path, nil, "-af", "volume="+musicVolume)
 }
 
 // DecodeReader is DecodeFile for audio that is already in hand rather than on
@@ -33,14 +37,15 @@ func DecodeReader(src io.Reader) (io.ReadCloser, error) {
 	return decode("-i", "pipe:0", src)
 }
 
-func decode(input string, path string, stdin io.Reader) (io.ReadCloser, error) {
-	command := exec.Command("ffmpeg", input, path,
+func decode(input string, path string, stdin io.Reader, filters ...string) (io.ReadCloser, error) {
+	args := append([]string{input, path}, filters...)
+	command := exec.Command("ffmpeg", append(args,
 		"-f", "s16le",
 		"-ar", strconv.Itoa(SampleRate),
 		"-ac", strconv.Itoa(Channels),
 		"-loglevel", "error",
 		"pipe:1",
-	)
+	)...)
 
 	command.Stdin = stdin
 

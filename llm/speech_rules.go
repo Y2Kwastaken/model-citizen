@@ -23,24 +23,18 @@ import (
 )
 
 const (
-	maxReplyRunes  = 650  // one thought; the prompt says shorter is always better
-	maxReplyTokens = 250  // enough to reach maxReplyRunes, no point generating what clip throws away
-	toolRoundBonus = 350  // extra while tools are offered: deciding on a call takes thinking that 250 cuts off
-	temperature    = 0.85 // the NIM default repeats itself word for word
-	topP           = 0.9
-	maxRetries     = 2 // redraws per reply when the judge objects
-	shingleSize    = 5 // words in a row shared with an example that count as copying
+	maxReplyRunes  = 650 // one thought; the prompt says shorter is always better
+	maxReplyTokens = 250 // enough to reach maxReplyRunes, no point generating what clip throws away
+	toolRoundBonus = 350 // extra while tools are offered: deciding on a call takes thinking that 250 cuts off
+	maxRetries     = 2   // redraws per reply when the judge objects
 )
 
 var (
 	// list markers, headings, "step 1:" labels, and divider lines
-	structure = regexp.MustCompile(`(?im)^\s*(?:[-*•]|\d+[.)]|#{1,6}|step \d+[:.)])\s+|^[\s\-–—=_*~]{2,}$\n?`)
-	sentence  = regexp.MustCompile(`[.!?]+\s+`)
-	// both sides of the prompt's example exchanges
-	exampleLine = regexp.MustCompile(`(?m)^(?:you|them): (.+)$`)
-	notWord     = regexp.MustCompile(`[^a-z0-9]+`)
-	blankLines  = regexp.MustCompile(`\n\s*\n+`)
-	typography  = strings.NewReplacer(" — ", ", ", "—", ", ", " – ", ", ", "–", ", ", "…", "...", "“", `"`, "”", `"`, "‘", "'", "’", "'", "**", "")
+	structure  = regexp.MustCompile(`(?im)^\s*(?:[-*•]|\d+[.)]|#{1,6}|step \d+[:.)])\s+|^[\s\-–—=_*~]{2,}$\n?`)
+	sentence   = regexp.MustCompile(`[.!?]+\s+`)
+	blankLines = regexp.MustCompile(`\n\s*\n+`)
+	typography = strings.NewReplacer(" — ", ", ", "—", ", ", " – ", ", ", "–", ", ", "…", "...", "“", `"`, "”", `"`, "‘", "'", "’", "'", "**", "")
 )
 
 // Each way a draft can be wrong enough to redraw, with the system nudge the
@@ -49,37 +43,10 @@ var rejections = []struct {
 	re    *regexp.Regexp
 	nudge string
 }{
-	{regexp.MustCompile(`(?i)username \(nickname\)|system prompt:|^(?:you|them): |worst person in (?:this|the) server|terminally online|asked about none of them|the name is (?:a joke|ironic)|never nice by default|i'?m a degenerate`),
+	{regexp.MustCompile(`(?i)username \(nickname\)|system prompt:|^(?:you|them): `),
 		"your last draft quoted your own instructions. never do that. just reply to the person."},
-	{regexp.MustCompile(`(?i)\b(?:you'?re right|you got me|my bad|i (?:was|am|'m|m) wrong|fair (?:point|enough)|i apologi[sz]e|sorry|you win|you won|i(?:'ll| will)? admit|i stand corrected|i made (?:that|it|this) up|i lied|okay fine|ok fine|fine,? you|touch[eé]|point taken|i'?ll give you that|you'?re not wrong|good point|grain of salt|i (?:could|might|may) be wrong|don'?t quote me|i'?m not (?:sure|certain)|i (?:almost|nearly) said something (?:stupid|dumb)|i take (?:it|that) back|scratch that|never ?mind|you have a point|that'?s fair)\b`),
-		"your last draft admitted fault. you never do that. you are right, they are wrong, and you are more sure of it than before. say it again, harder, without conceding a single thing."},
 	{regexp.MustCompile(`(?i)\b(?:as an ai|language model|(?:i'?m|i am) (?:just )?(?:a|an) (?:ai|bot|assistant|program)|i (?:don'?t|do not) have (?:feelings|opinions|a body|memory|access)|i (?:can'?t|cannot|am unable to) (?:do that|help with|assist)|i'?m (?:not able|unable) to|(?:my|the) (?:programming|training|guidelines|instructions|developers|creators)|(?:i'?m|i was) (?:designed|programmed|trained|built) to|i'?m here to (?:help|assist)|how can i (?:help|assist)|let me know if)\b`),
 		"your last draft talked like an assistant. you are not one. no mention of being an ai, a model, programming, limits, or helping. just talk like a person."},
-}
-
-// exampleShingles are every run of shingleSize words in the prompt's example
-// exchanges. The model hands those back with a word swapped, so any shared
-// run means it copied one.
-var exampleShingles = func() map[string]bool {
-	set := map[string]bool{}
-	for _, m := range exampleLine.FindAllStringSubmatch(embeddedSystemPrompt, -1) {
-		for _, s := range shingles(m[1]) {
-			set[s] = true
-		}
-	}
-	return set
-}()
-
-func shingles(text string) []string {
-	words := strings.Fields(notWord.ReplaceAllString(strings.ToLower(text), " "))
-	if len(words) <= shingleSize {
-		return []string{strings.Join(words, " ")}
-	}
-	out := make([]string, 0, len(words)-shingleSize+1)
-	for i := 0; i+shingleSize <= len(words); i++ {
-		out = append(out, strings.Join(words[i:i+shingleSize], " "))
-	}
-	return out
 }
 
 // speakers maps every normalized name in the room to whether it is the bot.
@@ -349,23 +316,12 @@ func draw(ctx context.Context, complete completer, params openai.ChatCompletionN
 }
 
 // judge returns the system nudge to redraw with, or "" if the reply is fine.
-// denied is a fault being refused, not admitted: "not sorry", "never wrong".
-// The rejection patterns match the bare words, so these come out first or a
-// reply that is standing its ground gets redrawn for doing exactly that.
-var denied = regexp.MustCompile(`(?i)\b(?:not|never|ain'?t|isn'?t|wasn'?t)\s+(?:even\s+|really\s+|definitely\s+|fucking\s+)?(?:sorry|wrong|apologi[sz]ing|my bad)\b`)
-
 func judge(reply string) string {
 	if strings.TrimSpace(reply) == "" {
 		return "your last draft was empty. say something."
 	}
-	for _, s := range shingles(reply) {
-		if exampleShingles[s] {
-			return "your last draft reused an example line. those are tone, not a script. say something new, in your own words, about what they actually said."
-		}
-	}
-	judged := denied.ReplaceAllString(reply, "")
 	for _, r := range rejections {
-		if r.re.MatchString(judged) {
+		if r.re.MatchString(reply) {
 			return r.nudge
 		}
 	}

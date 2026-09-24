@@ -3,21 +3,19 @@ package llm
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 )
-
-//go:embed prompts/system.md
-var embeddedSystemPrompt string
 
 const (
 	perModelTimeout = 10 * time.Second
@@ -25,22 +23,28 @@ const (
 	maxToolRounds = 2
 )
 
-// Config is where each rotation comes from. The fallback fields are
-// environment variable names, not values, so deployment config stays in
-// data/.env.
+// Config is where each rotation comes from.
 type Config struct {
+	// the personality prompt and messages kept per channel, from config/model.json
+	SystemPrompts  map[string]string
+	SelectedPrompt string
+	HistorySize    int
+	Temperature    float64
+	TopP           float64
+
 	TextModelsFile   string
 	VoiceModelsFile  string
 	SpeechModelsFile string
-
-	// a single chat model, used when TextModelsFile is unusable
-	FallbackAuthKey string
-	FallbackNameKey string
-	FallbackLinkKey string
 }
 
 type BrainProvider struct {
-	systemPrompt string
+	systemPrompts map[string]string
+	defaultPrompt string
+	// personality picked per guild, defaultPrompt when unset
+	promptLock  sync.RWMutex
+	guildPrompt map[snowflake.ID]string
+	temperature float64
+	topP        float64
 	// a feature is supported iff it has a rotation
 	rotations map[model.ModelFeature]model.ModelManager
 	history   model.HistoryProvider
@@ -48,17 +52,16 @@ type BrainProvider struct {
 	memory    model.MemorySet
 }
 
-// NewBrainLanguageModel builds a rotation per feature. A rotation that cannot
-// be built drops its feature rather than failing; only a brain with no
-// features at all is an error.
+// NewBrainLanguageModel builds a rotation per feature. Chat is required; a
+// voice or speech rotation that cannot be built drops its feature.
 func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 	rotations := make(map[model.ModelFeature]model.ModelManager)
 
-	if text, err := textRotation(config); err != nil {
-		slog.Warn("chat disabled", slog.Any("error", err))
-	} else {
-		rotations[model.Chat] = text
+	text, err := model.NewModelManager(config.TextModelsFile, model.Chat)
+	if err != nil {
+		return nil, fmt.Errorf("chat models %s: %w", config.TextModelsFile, err)
 	}
+	rotations[model.Chat] = text
 
 	if voice, err := model.NewModelManager(config.VoiceModelsFile, model.STT); err != nil {
 		slog.Warn("transcription disabled", slog.String("file", config.VoiceModelsFile), slog.Any("error", err))
@@ -72,32 +75,17 @@ func NewBrainLanguageModel(config Config) (model.LanguageModel, error) {
 		rotations[model.TTS] = speech
 	}
 
-	if len(rotations) == 0 {
-		return nil, fmt.Errorf("no model rotation could be built")
-	}
-
 	return &BrainProvider{
-		systemPrompt: embeddedSystemPrompt,
-		rotations:    rotations,
-		history:      model.NewChatHistory(),
-		tools:        model.NewModelTools(),
-		memory:       model.NewMemorySet(map[model.MemoryType]model.MemoryProvider{model.SHORT_TERM: model.NewShortTerm(-1)}),
+		systemPrompts: config.SystemPrompts,
+		defaultPrompt: config.SelectedPrompt,
+		guildPrompt:   make(map[snowflake.ID]string),
+		temperature:   config.Temperature,
+		topP:          config.TopP,
+		rotations:     rotations,
+		history:       model.NewChatHistory(config.HistorySize),
+		tools:         model.NewModelTools(),
+		memory:        model.NewMemorySet(map[model.MemoryType]model.MemoryProvider{model.SHORT_TERM: model.NewShortTerm(-1)}),
 	}, nil
-}
-
-// textRotation reads the chat roster, falling back to the single model named
-// by the environment when the file is missing or unusable.
-func textRotation(config Config) (model.ModelManager, error) {
-	text, err := model.NewModelManager(config.TextModelsFile, model.Chat)
-	if err == nil {
-		return text, nil
-	}
-
-	slog.Warn("falling back to the single chat model in the environment",
-		slog.String("file", config.TextModelsFile),
-		slog.Any("error", err),
-	)
-	return model.NewModelManagerFromEnvironment(config.FallbackAuthKey, config.FallbackNameKey, config.FallbackLinkKey)
 }
 
 // Implementation Basic
@@ -119,6 +107,30 @@ func (provider *BrainProvider) MemorySet() model.MemorySet {
 	return provider.memory
 }
 
+// implement tweaks
+
+func (provider *BrainProvider) SetPersonality(guild snowflake.ID, name string) error {
+	if _, ok := provider.systemPrompts[name]; !ok {
+		return fmt.Errorf("no known system prompt %s", name)
+	}
+
+	provider.promptLock.Lock()
+	provider.guildPrompt[guild] = name
+	provider.promptLock.Unlock()
+	return nil
+}
+
+// systemPrompt is the prompt of the personality guild picked, or the default.
+func (provider *BrainProvider) systemPrompt(guild snowflake.ID) string {
+	provider.promptLock.RLock()
+	name, ok := provider.guildPrompt[guild]
+	provider.promptLock.RUnlock()
+	if !ok {
+		name = provider.defaultPrompt
+	}
+	return provider.systemPrompts[name]
+}
+
 // Implementation Functions
 
 func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (string, error) {
@@ -136,7 +148,7 @@ func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (s
 	orderedHistory := history.OrderedHistory(channel)
 	memoryHistory := provider.memory.AllOrderedMemories()
 	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(memoryHistory)+len(orderedHistory)+1)
-	messages = append(messages, openai.SystemMessage(provider.systemPrompt))
+	messages = append(messages, openai.SystemMessage(provider.systemPrompt(origin.Guild)))
 	for _, memory := range memoryHistory {
 		messages = append(messages, openai.SystemMessage("["+memory.At.Format("2006-01-02 15:04:05")+"]Memory ["+memory.Name+"]: "+memory.Memory))
 	}
@@ -154,8 +166,8 @@ func (provider *BrainProvider) Chat(ctx context.Context, origin model.Origin) (s
 		Messages:        messages,
 		Tools:           provider.tools.Build(),
 		ReasoningEffort: shared.ReasoningEffortNone,
-		Temperature:     openai.Float(temperature),
-		TopP:            openai.Float(topP),
+		Temperature:     openai.Float(provider.temperature),
+		TopP:            openai.Float(provider.topP),
 		MaxTokens:       openai.Int(maxReplyTokens),
 	}, orderedHistory, origin)
 }

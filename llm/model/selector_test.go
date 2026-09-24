@@ -53,7 +53,7 @@ func TestReadModelsFileRejectsUnusable(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := readModelsFile(path); err == nil {
-			t.Errorf("%s: want an error so the environment fallback kicks in", name)
+			t.Errorf("%s: want an error", name)
 		}
 	}
 	if _, err := readModelsFile(filepath.Join(dir, "missing.json")); err == nil {

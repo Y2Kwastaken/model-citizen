@@ -23,6 +23,7 @@ func registerTools(client *bot.Client, brain model.LanguageModel) {
 	tools.Register(leaveVoiceTool(client))
 	tools.Register(disconnectUser(client))
 	tools.Register(commitToMemory(brain))
+	tools.Register(changePersonality(brain))
 }
 
 // disconnectUser kicks a named user out of the bot's voice channel for the model.
@@ -218,6 +219,37 @@ func commitToMemory(brain model.LanguageModel) model.Tool {
 				return "wrote down for good: " + args.Memory
 			}
 			return "wrote down: " + args.Memory
+		},
+	}
+}
+
+func changePersonality(brain model.LanguageModel) model.Tool {
+	return model.Tool{
+		Definition: shared.FunctionDefinitionParam{
+			Name:        "switch",
+			Description: openai.String("switches your personality. switch to, switch, change personalities, personality swap..."),
+			Parameters: shared.FunctionParameters{
+				"type": "object",
+				"properties": map[string]any{
+					"personality": map[string]any{"type": "string", "description": "the personality name to switch to"},
+				},
+				"required": []string{"personality"},
+			},
+		},
+		Handle: func(ctx context.Context, call model.Invocation) string {
+			var args struct {
+				PersonalityName string `json:"personality"`
+			}
+
+			if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+				return "could not read the memory arguments: " + err.Error()
+			}
+
+			if err := brain.SetPersonality(call.Guild, args.PersonalityName); err != nil {
+				return "could not set personality: " + err.Error()
+			}
+
+			return "personality set to " + args.PersonalityName
 		},
 	}
 }

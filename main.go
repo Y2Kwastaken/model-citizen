@@ -5,66 +5,53 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	discordbot "github.com/Y2Kwastaken/model-citizen/discord-bot"
 	"github.com/Y2Kwastaken/model-citizen/discord-bot/audio"
+	"github.com/Y2Kwastaken/model-citizen/discord-bot/config"
 	"github.com/Y2Kwastaken/model-citizen/llm"
 )
 
 const (
-	MODEL_FILE_KEY        = "MODEL_FILE"
-	VOICE_MODEL_FILE_KEY  = "VOICE_MODEL_FILE"
-	SPEECH_MODEL_FILE_KEY = "SPEECH_MODEL_FILE"
-	MODEL_AUTH_KEY        = "MODEL_AUTH_KEY"
-	MODEL_NAME_KEY        = "MODEL_NAME"
-	MODEL_LINK_KEY        = "MODEL_LINK"
-	DISCORD_KEY           = "DISCORD_KEY"
-	ONNXRUNTIME_LIB_KEY   = "ONNXRUNTIME_LIB"
-	WAKE_DIR_KEY          = "WAKE_DIR"
-	WAKE_THRESHOLD_KEY    = "WAKE_THRESHOLD"
+	MODEL_CONFIG_KEY = "MODEL_CONFIG"
+	DISCORD_KEY      = "DISCORD_KEY"
 
-	// where the rotations are read from when the *_FILE variables are unset;
-	// the compose file mounts data/*-models.json here
-	defaultModelFile       = "text-models.json"
-	defaultVoiceModelFile  = "voice-models.json"
-	defaultSpeechModelFile = "speech-models.json"
-
-	// the wake word models, and the onnxruntime the Dockerfile installs
-	defaultOnnxruntimeLib = "/usr/local/lib/libonnxruntime.so"
-	defaultWakeDir        = "wakeword"
-	wakeModel             = "hey_model.onnx"
-	defaultWakeThreshold  = 0.12
+	// the personality and history settings; personality paths are relative to it
+	defaultModelConfig = "config/model.json"
 )
 
 func main() {
 	ctx := context.Background()
 
+	settings, err := config.NewModelSettings(envOr(MODEL_CONFIG_KEY, defaultModelConfig))
+	if err != nil {
+		slog.Error("error while reading model config", slog.Any("err", err))
+		os.Exit(1)
+	}
+
 	brain, err := llm.NewBrainLanguageModel(llm.Config{
-		TextModelsFile:   envOr(MODEL_FILE_KEY, defaultModelFile),
-		VoiceModelsFile:  envOr(VOICE_MODEL_FILE_KEY, defaultVoiceModelFile),
-		SpeechModelsFile: envOr(SPEECH_MODEL_FILE_KEY, defaultSpeechModelFile),
-		FallbackAuthKey:  MODEL_AUTH_KEY,
-		FallbackNameKey:  MODEL_NAME_KEY,
-		FallbackLinkKey:  MODEL_LINK_KEY,
+		SystemPrompts:    settings.Pesrsonalities,
+		SelectedPrompt:   settings.DefaultPersonality,
+		HistorySize:      settings.HistorySize,
+		Temperature:      settings.Temperature,
+		TopP:             settings.TopP,
+		TextModelsFile:   settings.TextModelsFile,
+		VoiceModelsFile:  settings.STTModelsFiles,
+		SpeechModelsFile: settings.TTSModelFiles,
 	})
 	if err != nil {
 		slog.Error("error while starting llm connector", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	wake, err := audio.LoadWakeWord(envOr(ONNXRUNTIME_LIB_KEY, defaultOnnxruntimeLib), envOr(WAKE_DIR_KEY, defaultWakeDir), wakeModel)
+	wake, err := audio.LoadWakeWord(settings.WakeWordRuntime, settings.WakeWordDirectory, settings.WakeWordFile)
 	if err != nil {
-		slog.Warn("wake word disabled", slog.Any("err", err))
+		slog.Error("wake word not found", slog.Any("err", err))
+		os.Exit(1)
 	}
 
-	threshold := defaultWakeThreshold
-	if given, err := strconv.ParseFloat(os.Getenv(WAKE_THRESHOLD_KEY), 32); err == nil {
-		threshold = given
-	}
-
-	client, err := discordbot.Start(ctx, brain, DISCORD_KEY, discordbot.Listening{Wake: wake, Threshold: float32(threshold)})
+	client, err := discordbot.Start(ctx, brain, DISCORD_KEY, discordbot.Listening{Wake: wake, Threshold: float32(settings.WakeWordThreshold)})
 
 	if err != nil {
 		slog.Error("error while starting discord bot", slog.Any("err", err))

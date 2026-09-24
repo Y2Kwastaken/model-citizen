@@ -1,13 +1,13 @@
 [
     {
-        "name": "meta/muse-glimmer-30b",
+        "name": "nvidia/nemotron-3-super-120b-a12b",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "auth_key": "MODEL_AUTH_KEY"
     },
     {
-        "name": "nvidia/nemotron-3-super-120b-a12b",
-        "base_url": "https://integrate.api.nvidia.com/v1",
-        "auth_key": "MODEL_AUTH_KEY"
+        "name": "qwen/qwen3.8-27b",
+        "base_url": "https://api.groq.com/openai/v1",
+        "auth_key": "GROQ_KEY"
     },
     {
         "name": "gemma4:31b",

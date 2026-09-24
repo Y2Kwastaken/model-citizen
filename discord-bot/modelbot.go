@@ -22,8 +22,7 @@ import (
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
 )
 
-// Listening is how the bot hears voice. A nil Wake still listens, for
-// /transcribe, but nothing wakes the brain.
+// Listening is how the bot hears voice. Wake must not be nil.
 type Listening struct {
 	Wake      *audio.WakeWord
 	Threshold float32 // score that counts as the wake word

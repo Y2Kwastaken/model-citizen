@@ -46,6 +46,8 @@ var ears struct {
 
 	mu      sync.Mutex
 	byGuild map[snowflake.ID]*audio.Listener
+	// where the last wake's command ended, so the next one skips what it already sent
+	heardUntil map[snowflake.ID]time.Time
 }
 
 // line is one transcribed utterance.
@@ -67,9 +69,6 @@ func listen(client *bot.Client, guild snowflake.ID, channel snowflake.ID, conn v
 	ears.byGuild[guild] = listener
 	ears.mu.Unlock()
 
-	if ears.wake == nil {
-		return
-	}
 	go func() {
 		// the channel closes when the connection does
 		for trigger := range listener.Triggers() {
@@ -88,11 +87,35 @@ func stopListening(guild snowflake.ID) {
 	}
 }
 
-func listenerFor(guild snowflake.ID) (*audio.Listener, bool) {
+// unheard drops utterances an earlier wake in guild already sent to history.
+func unheard(guild snowflake.ID, utterances []audio.Utterance) []audio.Utterance {
+	ears.mu.Lock()
+	until := ears.heardUntil[guild]
+	ears.mu.Unlock()
+	return slices.DeleteFunc(utterances, func(u audio.Utterance) bool { return u.Start.Before(until) })
+}
+
+func markHeard(guild snowflake.ID, until time.Time) {
 	ears.mu.Lock()
 	defer ears.mu.Unlock()
-	listener, ok := ears.byGuild[guild]
-	return listener, ok
+	if ears.heardUntil == nil {
+		ears.heardUntil = make(map[snowflake.ID]time.Time)
+	}
+	ears.heardUntil[guild] = until
+}
+
+// selfName is the bot's name in guild, in the same "username (nickname)" form as everyone else.
+func selfName(client *bot.Client, guild snowflake.ID) string {
+	member, ok := client.Caches.SelfMember(guild)
+	if !ok {
+		user, _ := client.Caches.SelfUser()
+		return user.Username
+	}
+	name := member.User.Username
+	if display := member.EffectiveName(); display != name {
+		name = fmt.Sprintf("%s (%s)", name, display)
+	}
+	return name
 }
 
 // handleWake transcribes what everyone said leading up to and including the
@@ -122,11 +145,12 @@ func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, li
 		}
 	}()
 
-	early := closedBefore(listener.Context(trigger.At, contextWindow), trigger.At)
+	early := unheard(guild, closedBefore(listener.Context(trigger.At, contextWindow), trigger.At))
 	earlyLines := make(chan []line, 1)
 	go func() { earlyLines <- transcribeUtterances(ctx, client, guild, early) }()
 
 	finished := awaitQuiet(ctx, listener, trigger.User, trigger.At)
+	markHeard(guild, finished)
 	late := excluding(listener.Context(finished, contextWindow+finished.Sub(trigger.At)), early)
 	lines := append(<-earlyLines, transcribeUtterances(ctx, client, guild, late)...)
 	slices.SortFunc(lines, func(a, b line) int { return a.At.Compare(b.At) })
@@ -153,6 +177,10 @@ func handleWake(client *bot.Client, guild snowflake.ID, channel snowflake.ID, li
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
 		return
+	}
+	// a posted reply reaches history through HandleMessage, a spoken-only one has to be added here
+	if !chat {
+		history.InsertMessage(channel, model.Self, selfName(client, guild), reply)
 	}
 
 	// The text goes up whatever happens to the voice: it is the fallback
@@ -325,13 +353,4 @@ func speakerNames(client *bot.Client, guild snowflake.ID, utterances []audio.Utt
 	}
 	wg.Wait()
 	return names
-}
-
-// transcript renders lines for a person to read.
-func transcript(lines []line) string {
-	var b strings.Builder
-	for _, l := range lines {
-		fmt.Fprintf(&b, "`%s` **%s**: %s\n", l.At.Format("15:04:05"), l.Name, l.Text)
-	}
-	return b.String()
 }

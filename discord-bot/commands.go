@@ -99,20 +99,6 @@ func commandTable(brain model.LanguageModel) []Command {
 		},
 		{
 			Create: discord.SlashCommandCreate{
-				Name:        "transcribe",
-				Description: "reads back what was said in the voice channel recently",
-				Options: []discord.ApplicationCommandOption{
-					discord.ApplicationCommandOptionInt{
-						Name:        "seconds",
-						Description: "how far back to go (default 10, max 30)",
-						Required:    false,
-					},
-				},
-			},
-			Handler: transcribeCommand(brain),
-		},
-		{
-			Create: discord.SlashCommandCreate{
 				Name:        "say",
 				Description: "says something out loud in the voice channel",
 				Options: []discord.ApplicationCommandOption{

@@ -8,27 +8,60 @@ This discord bot is truly a model citizen
 docker compose up --build
 ```
 
-Requires `data/.env` with:
+Requires `.env` (copy `.env.example`) with:
 
 | Variable | Purpose |
 | --- | --- |
 | `DISCORD_KEY` | Discord bot token |
-| `MODEL_AUTH_KEY` | API key for the chat model (NVIDIA NIM `nvapi-...`) |
-| `MODEL_NAME` | Fallback model id, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b` |
-| `MODEL_LINK` | Fallback base URL, e.g. `https://integrate.api.nvidia.com/v1` |
-| `MODEL_FILE` | Optional path to the text rotation file, defaults to `text-models.json` |
-| `VOICE_MODEL_FILE` | Optional path to the voice rotation file, defaults to `voice-models.json` |
-| `SPEECH_MODEL_FILE` | Optional path to the speech rotation file, defaults to `speech-models.json` |
-| `ONNXRUNTIME_LIB` | Optional path to `libonnxruntime.so`, defaults to where the image installs it |
-| `WAKE_DIR` | Optional directory holding the wake word models, defaults to `wakeword` |
-| `WAKE_THRESHOLD` | Optional score (0–1) that counts as the wake word, defaults to `0.2` |
+| `MODEL_CONFIG` | Optional path to the bot's config, defaults to `config/model.json` |
+
+plus one key per service the model rosters name in `auth_key`: `MODEL_AUTH_KEY`
+(NVIDIA NIM `nvapi-...`), `OLLAMA_MODEL_KEY`, `MISTRAL_KEY`, `DEEPGRAM_KEY`,
+`ASSEMBLYAI_KEY` and `GOOGLE_KEY` in the committed rosters.
+
+### Configuration
+
+Everything else lives in `config/model.json`. File paths in it are relative to
+the config file itself:
+
+```json
+{
+    "default_personality": "default",
+    "personalities": {
+        "default": "personalities/default-personality.md",
+        "smug": "personalities/smug-personality.md",
+        "degenerate": "personalities/degenerate-personality.md"
+    },
+    "text-models": "models/text-models.json",
+    "tts-models": "models/tts-models.json",
+    "stt-models": "models/stt-models.json",
+    "history_size": 20,
+    "wake_word_threshold": 0.12,
+    "wake_word_directory": "wakeword",
+    "wake_word_file": "hey_model.onnx",
+    "wake_word_runtime": "/usr/local/lib/libonnxruntime.so"
+}
+```
+
+| Field | Purpose |
+| --- | --- |
+| `default_personality` | Which entry of `personalities` is the system prompt |
+| `personalities` | Name to a markdown prompt file; add a file and an entry to add a personality |
+| `text-models`, `stt-models`, `tts-models` | The chat, transcription and speech rosters, see below |
+| `history_size` | Messages kept per channel |
+| `wake_word_threshold` | Score (0–1) that counts as "hey model"; lower hears more and false-triggers more, and anything under `0.1` is raised to it |
+| `wake_word_directory`, `wake_word_file` | Where the wake word model lives |
+| `wake_word_runtime` | Path to `libonnxruntime.so`; the default is where the image installs it |
+
+`config/` is copied into the image, so changing it means `docker compose up --build`.
+
+The bot will not start without a chat roster it can load or a wake word model.
 
 ### Model rotation
 
-The bot cycles through the chat models in `data/text-models.json`, the
-transcription models in `data/voice-models.json` and the voices in
-`data/speech-models.json`, which compose mounts into the container. All three
-share one format:
+The bot cycles through the chat models in `config/models/text-models.json`, the
+transcription models in `config/models/stt-models.json` and the voices in
+`config/models/tts-models.json`. All three share one format:
 
 ```json
 [
@@ -41,14 +74,15 @@ share one format:
 ```
 
 `auth_key` is the *name* of the environment variable holding that model's key,
-never the key itself — the roster is committed, `data/.env` is not. Each entry
+never the key itself — the roster is committed, `.env` is not. Each entry
 resolves its own variable, so pointing a model at a different service is a new
-entry plus a new line in `data/.env`. A model whose variable is unset is logged
+entry plus a new line in `.env`. A model whose variable is unset is logged
 and dropped from the rotation rather than stopping the bot, so you can list a
 service before you have credentials for it. A service that has no key at all,
 one running alongside the bot rather than over the web, says so with
 `"auth_key": "NOP"` and is kept as it is — that way a key which is simply
-missing still looks like a mistake.
+missing still looks like a mistake. A transcription or speech roster that can't
+be loaded turns that feature off; the chat roster is required.
 
 Everything is assumed to speak OpenAI's API. The two transcription services
 worth using that do not get an `api` field instead:
@@ -70,7 +104,7 @@ worth using that do not get an `api` field instead:
 ]
 ```
 
-`api` may be `openai` (the default), `mistral`, `deepgram` or `assemblyai`, and
+`api` may be `openai` (the default), `mistral`, `google`, `deepgram` or `assemblyai`, and
 `name` is whatever that service calls its model. Each roster is loaded for one
 feature and every service in it is checked against that feature, so a voice
 listed among the chat models is an error at startup rather than a request that
@@ -81,7 +115,7 @@ seconds are up, so it belongs last in the rotation.
 
 ### Speech
 
-`data/speech-models.json` is the bot's voice:
+`config/models/tts-models.json` is the bot's voice:
 
 ```json
 [
@@ -127,9 +161,6 @@ Every reply is timed. A fast model works its score down, a slow one works it up,
 and a model that crosses the score or errors outright is benched — the request
 is retried on the next model rather than failing. Benched models come back after
 five minutes, because an endpoint being down is nearly always temporary.
-
-`MODEL_NAME` and `MODEL_LINK` are only the fallback for when the file is missing
-or unreadable, so the bot still starts with a rotation of one.
 
 Chat replies also need the **Message Content** privileged intent enabled in the
 Discord developer portal (Bot -> Privileged Gateway Intents). It is declared in
