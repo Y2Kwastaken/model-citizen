@@ -1,0 +1,28 @@
+services:
+  discord-bot:
+    build:
+      context: .
+      dockerfile: discord-bot/Dockerfile
+    env_file: .env
+    environment:
+      MODEL_CITIZEN_CONFIG: /config/model-citizen.toml
+      LLM_ADDRESS: llm:50051
+    depends_on:
+      - llm
+    volumes:
+      - songs-cache:/songs/
+      - ./config:/config:ro
+
+  llm:
+    build:
+      context: .
+      dockerfile: llm/Dockerfile
+    # API keys for the chat clients, named by api_key_env in llm.toml
+    env_file: .env
+    environment:
+      LLM_CONFIG: /config/llm.toml
+    volumes:
+      - ./config:/config:ro
+
+volumes:
+  songs-cache:

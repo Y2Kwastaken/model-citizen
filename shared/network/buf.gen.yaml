@@ -1,0 +1,14 @@
+# generates the go code for every .proto under proto/, run through go generate
+# from this directory (see network.go). The plugins are the tool versions
+# pinned in shared/go.mod.
+version: v2
+clean: true
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: gen
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: gen
+    opt: paths=source_relative
+inputs:
+  - directory: proto

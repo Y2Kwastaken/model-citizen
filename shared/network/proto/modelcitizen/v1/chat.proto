@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package modelcitizen.v1;
+
+option go_package = "github.com/Y2Kwastaken/model-citizen/shared/network/gen/modelcitizen/v1;modelcitizenv1";
+
+message ChatRequest {
+  int64 guild_id = 1;
+  int64 channel_id = 2;
+  // the user who asked, passed on to tool calls as who
+  string who = 3;
+}
+
+message ChatResponse {
+  string reply = 1;
+}
+
+service ChatService {
+  rpc Chat(ChatRequest) returns (ChatResponse);
+}

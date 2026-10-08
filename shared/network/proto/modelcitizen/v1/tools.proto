@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package modelcitizen.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/Y2Kwastaken/model-citizen/shared/network/gen/modelcitizen/v1;modelcitizenv1";
+
+message RegisterToolRequest {
+  string name = 1;
+  string description = 2;
+  google.protobuf.Struct parameters = 3;
+}
+
+message RegisterToolResponse {}
+
+message ToolCall {
+  // echoed back in the ToolResult so the llm can match it
+  string id = 1;
+  string name = 2;
+  string arguments = 3;
+  int64 guild_id = 4;
+  string where = 5;
+  string who = 6;
+}
+
+// the outcome of a ToolCall, an error is handed to the model as the result
+message ToolResult {
+  string id = 1;
+  oneof outcome {
+    string output = 2;
+    string error = 3;
+  }
+}
+
+message ToolCallsRequest {
+  ToolResult result = 1;
+}
+
+message ToolCallsResponse {
+  ToolCall call = 1;
+}
+
+service ToolService {
+  rpc RegisterTool(RegisterToolRequest) returns (RegisterToolResponse);
+  rpc ToolCalls(stream ToolCallsRequest) returns (stream ToolCallsResponse);
+}

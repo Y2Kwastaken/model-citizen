@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package modelcitizen.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/Y2Kwastaken/model-citizen/shared/network/gen/modelcitizen/v1;modelcitizenv1";
+
+message MemorySource {
+  int64 guild_id = 1;
+  string where = 2;
+}
+
+enum MemoryOwner {
+  MEMORY_OWNER_UNSPECIFIED = 0;
+  MEMORY_OWNER_SELF = 1;
+  MEMORY_OWNER_OTHER = 2;
+}
+
+message Memory {
+  google.protobuf.Timestamp created_at = 1;
+  string sender = 2;
+  string content = 3;
+  MemoryOwner owner = 4;
+}
+
+message MemorizeRequest {
+  MemorySource source = 1;
+  Memory memory = 2;
+}
+
+message MemorizeResponse {}
+
+message RecallRequest {
+  MemorySource source = 1;
+}
+
+message RecallResponse {
+  repeated Memory memories = 1;
+}
+
+service MemoryService {
+  rpc Memorize(MemorizeRequest) returns (MemorizeResponse);
+  rpc Recall(RecallRequest) returns (RecallResponse);
+}

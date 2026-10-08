@@ -1,0 +1,171 @@
+# model-citizen llm configuration
+#
+# There are no defaults: every key under [chat] and [chat.rotation] is
+# required, as are at least one personality and one [[chat.clients]] entry.
+# Missing and unknown keys are an error, so mistakes are caught at startup.
+# Restart the bot to apply.
+#
+# Durations are strings such as "500ms", "5s", "2m".
+# API keys belong in .env, never in this file: each client names the
+# environment variable that holds its key.
+
+[chat]
+# Messages kept per channel and sent with each reply.
+history_size = 20
+# How long one reply may take, across every client it fails over to.
+reply_timeout = "30s"
+# How long one attempt on one client may take before failing over to the next.
+per_client_timeout = "10s"
+# The personality every conversation starts with. Must be a name below.
+default_personality = "default"
+
+# Personalities: the markdown file holding the system prompt, and the voice
+# it speaks with, a name from [tts.voices]. Prompt paths are relative to this
+# file. Leave voice out and the personality never speaks.
+[chat.personalities.default]
+prompt = "personalities/default.md"
+voice = "cheery"
+
+[chat.personalities.cool]
+prompt = "personalities/cool.md"
+voice = "cool"
+
+# Every call is timed, and the rotation moves off clients that are slow or
+# down. Must satisfy 0 < reward <= punish <= kill.
+[chat.rotation]
+# A call this fast takes 1 off the client's score (never below 0).
+reward = "2s"
+# A call this slow adds 2 to the score. A score of 10 benches the client.
+punish = "5s"
+# A call this slow benches the client at once. So does an error.
+kill = "10s"
+# How long a benched client sits out before it's tried again.
+parole = "5m"
+
+# Chat clients, tried in order. Any OpenAI compatible endpoint works.
+#
+# Only model and api_key_env are required. Every other setting is left out of
+# the request when unset, so the provider's default applies.
+#
+#   base_url               endpoint, leave out for OpenAI's
+#   temperature            0 to 2. Reasoning models reject it
+#   top_p                  above 0, at most 1
+#   max_completion_tokens  reply length cap, reasoning tokens count toward it
+#   presence_penalty       -2 to 2, positive discourages repeating topics
+#   frequency_penalty      -2 to 2, positive discourages repeating words
+#   seed                   best effort deterministic sampling
+#   reasoning_effort       minimal | low | medium | high, reasoning models only
+#   stop                   up to 4 strings that end the reply early
+#   extra_body             provider specific fields added to the request
+[[chat.clients]]
+model = "gemma4:31b"
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_MODEL_KEY"
+temperature = 0.85
+top_p = 0.9
+max_completion_tokens = 250
+
+[[chat.clients]]
+model = "qwen/qwen3.8-27b"
+base_url = "https://api.groq.com/openai/v1"
+api_key_env = "GROQ_KEY"
+temperature = 0.85
+top_p = 0.9
+max_completion_tokens = 250
+
+[[chat.clients]]
+model = "nvidia/nemotron-3-super-120b-a12b"
+base_url = "https://integrate.api.nvidia.com/v1"
+api_key_env = "MODEL_AUTH_KEY"
+temperature = 0.85
+top_p = 0.9
+max_completion_tokens = 250
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+
+# Speech to text for voice commands. Optional: without this section the llm
+# doesn't transcribe. Once it's here every key is required.
+[stt]
+# Language spoken in voice chat, passed to every service. Empty lets them guess.
+language = "en"
+# How long one clip may take, across every client it fails over to.
+timeout = "30s"
+# How long one attempt on one client may take before failing over to the next.
+per_client_timeout = "10s"
+
+# Like [chat.rotation], for transcription.
+[stt.rotation]
+reward = "2s"
+punish = "5s"
+kill = "10s"
+parole = "5m"
+
+# Transcription clients, tried in order. A failing one is benched and the next
+# is tried.
+#
+#   api          openai (default) | deepgram | assemblyai
+#   model        what the service calls the model
+#   base_url     required for deepgram and assemblyai, leave out for OpenAI's
+#   api_key_env  environment variable holding the key
+#
+# AssemblyAI queues a clip and is polled until it's done, so it goes last.
+
+[[stt.clients]]
+api = "deepgram"
+model = "nova-3"
+base_url = "https://api.deepgram.com"
+api_key_env = "DEEPGRAM_KEY"
+
+[[stt.clients]]
+model = "voxtral-mini-latest"
+base_url = "https://api.mistral.ai/v1"
+api_key_env = "MISTRAL_KEY"
+
+[[stt.clients]]
+api = "assemblyai"
+model = "universal"
+base_url = "https://api.assemblyai.com"
+api_key_env = "ASSEMBLYAI_KEY"
+
+# Text to speech for answering voice commands out loud. Optional: without this
+# section the bot only replies in text. Once it's here every key is required.
+[tts]
+# How long one reply may take to speak, across every client it fails over to.
+timeout = "30s"
+# How long one attempt on one client may take before failing over to the next.
+per_client_timeout = "15s"
+
+# Like [chat.rotation], for speech.
+[tts.rotation]
+reward = "2s"
+punish = "5s"
+kill = "15s"
+parole = "5m"
+
+# Voices, each a name personalities refer to and the clients that can speak
+# it, tried in order. More than one is an outage plan: a voice that changes
+# mid conversation is worse than a pause, so keep fallbacks sounding alike.
+#
+#   api          openai (default) | mistral | google
+#   model        required for openai and mistral, google's voice is the model
+#   voice        what the service calls the voice
+#   base_url     required for mistral and google, leave out for OpenAI's
+#   api_key_env  environment variable holding the key
+#
+# Google's Chirp 3 HD voices (Puck, Charon, Fenrir, Kore, Aoede, ...) exist
+# under every en-* locale. Mistral's Voxtral takes e.g. voice = "gb_oliver_neutral";
+# pin its model rather than a -latest alias so the voice can't drift.
+
+# upbeat and bright
+[[tts.voices.cheery]]
+api = "google"
+voice = "en-US-Chirp3-HD-Puck"
+base_url = "https://texttospeech.googleapis.com/v1"
+api_key_env = "GOOGLE_KEY"
+
+# low and unhurried
+[[tts.voices.cool]]
+api = "google"
+voice = "en-GB-Chirp3-HD-Charon"
+base_url = "https://texttospeech.googleapis.com/v1"
+api_key_env = "GOOGLE_KEY"

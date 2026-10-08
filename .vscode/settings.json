@@ -1,0 +1,4 @@
+{
+    "gopls": { "buildFlags": ["-tags=nolibopusfile"] },
+    "[proto3]": { "editor.defaultFormatter": "bufbuild.vscode-buf" }
+}

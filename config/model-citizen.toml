@@ -1,0 +1,66 @@
+# model-citizen configuration
+#
+# Every value shown is the default. Every key is optional: anything you
+# remove keeps the default shown here. Unknown keys are an error, so typos are
+# caught at startup. Restart the bot to apply.
+#
+# Durations are strings such as "500ms", "5s", "2m".
+# Secrets (DISCORD_KEY, ...) belong in .env, never in this file.
+
+[logging]
+# debug | info | warn | error
+level = "info"
+
+# Settings shared by everything that plays audio in a voice channel.
+[voice]
+# How long /join waits for Discord to open the voice connection.
+join_timeout = "5s"
+# Audio buffered ahead per playing source, in 20 ms frames (25 = 500 ms).
+# Raise it if playback stutters on a slow disk or CPU; costs a little latency.
+layer_buffer_frames = 25
+
+[music]
+# How many songs can wait in each server's queue.
+queue_capacity = 25
+# Playback volume in decibels. 0 is the track's original level, -6 is about
+# half the amplitude. Values above 0 can clip.
+volume_db = -10.0
+# How long /play may spend searching and downloading a song.
+search_timeout = "2m"
+
+[music.cache]
+# Where downloaded songs are stored.
+directory = "/songs/"
+# How many downloaded songs to keep; the oldest is deleted past this.
+max_tracks = 50
+
+# Wake word listening. The bot listens whenever it's in a voice channel; if the
+# models can't be loaded it logs a warning and stays deaf.
+[listen]
+# Path to libonnxruntime.so (1.29.x). The image installs it here.
+onnxruntime = "/usr/local/lib/libonnxruntime.so"
+# Folder holding melspectrogram.onnx, embedding_model.onnx and the wake word.
+directory = "/assets/wake/"
+# The wake word model in directory.
+model = "hey_model.onnx"
+# Score from 0 to 1 that counts as the wake word. Lower hears it more often
+# and false triggers more. Set logging to debug to see near misses.
+threshold = 0.12
+# How soon the same person can wake the bot again.
+debounce = "3s"
+# Audio kept per speaker. At least context + command_max + command_quiet.
+window = "30s"
+# Conversation from before the wake word that's sent along with the command,
+# so the bot knows what was being talked about.
+context = "10s"
+# Pause that ends a command. Lower answers sooner but cuts people off.
+command_quiet = "700ms"
+# How loud audio has to be to count as talking, in dBFS (0 is the loudest
+# possible). Mics keep sending background noise while you're quiet, so the end
+# of a command is found by level. With logging on debug, "voice level" lines
+# show your loudest and quietest each second: put this between the two.
+quiet_level = -40.0
+# Longest command listened to.
+command_max = "10s"
+# Shorter sounds are treated as noise and not transcribed.
+min_utterance = "400ms"

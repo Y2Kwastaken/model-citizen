@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package modelcitizen.v1;
+
+option go_package = "github.com/Y2Kwastaken/model-citizen/shared/network/gen/modelcitizen/v1;modelcitizenv1";
+
+message TranscribeRequest {
+  // 16 kHz mono wav
+  bytes audio = 1;
+}
+
+message TranscribeResponse {
+  string text = 1;
+}
+
+message SpeakRequest {
+  // spoken in the voice of the guild's personality
+  int64 guild_id = 1;
+  string text = 2;
+}
+
+message SpeakResponse {
+  // any format ffmpeg can read
+  bytes audio = 1;
+}
+
+service SpeechService {
+  rpc Transcribe(TranscribeRequest) returns (TranscribeResponse);
+  rpc Speak(SpeakRequest) returns (SpeakResponse);
+}
