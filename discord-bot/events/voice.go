@@ -20,6 +20,8 @@ const (
 	transcribeTimeout = 45 * time.Second
 	// how often the person who woke the bot is checked for having stopped talking
 	quietPoll = 50 * time.Millisecond
+	// silence put between someone's utterances when they're joined, 300 ms at 16 kHz
+	turnGap = 16000 * 3 / 10
 )
 
 // one transcribed utterance
@@ -59,7 +61,7 @@ func answerWake(client *bot.Client, services *state.GlobalServices, guild snowfl
 	if from.Before(heard) {
 		from = heard
 	}
-	utterances := listener.Utterances(from, until)
+	utterances := joinTurns(listener.Utterances(from, until))
 
 	start := time.Now()
 	lines := transcribe(services.Brain, utterances, listen.MinUtterance)
@@ -124,6 +126,22 @@ func awaitQuiet(listener *audio.OpusListener, wake audio.Wake, quiet time.Durati
 		}
 	}
 	return time.Now()
+}
+
+// joins back to back utterances by the same person into one clip, fewer and
+// longer clips transcribe better and each one is a transcription call. someone
+// else speaking in between keeps them apart, so the conversation stays in order
+func joinTurns(utterances []audio.Utterance) []audio.Utterance {
+	var out []audio.Utterance
+	for _, utterance := range utterances {
+		if last := len(out) - 1; last >= 0 && out[last].User == utterance.User {
+			out[last].PCM = append(out[last].PCM, make([]int16, turnGap)...)
+			out[last].PCM = append(out[last].PCM, utterance.PCM...)
+			continue
+		}
+		out = append(out, utterance)
+	}
+	return out
 }
 
 // transcribes every utterance long enough to be speech at once, oldest first

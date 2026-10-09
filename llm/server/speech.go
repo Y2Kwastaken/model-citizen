@@ -131,7 +131,7 @@ func failover[T any, R any](ctx context.Context, rotation shared.Rotation[T], pe
 		if err == nil {
 			took := time.Since(start)
 			rotation.Judge(entry, took)
-			slog.Info("speech client answered", slog.String("client", name(entry.Value)), slog.Duration("took", took))
+			slog.Debug("speech client answered", slog.String("client", name(entry.Value)), slog.Duration("took", took))
 			return result, nil
 		}
 
