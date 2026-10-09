@@ -66,8 +66,12 @@ func main() {
 	}
 
 	slog.Info("Setting up music service; this may take a while...")
-	services.Music.Setup(context.Background())
-	slog.Info("Finalized setting up music service")
+	// a failed download only turns music off, the rest of the bot still runs
+	if err := services.Music.Setup(context.Background()); err != nil {
+		slog.Error("music disabled, setting up the music service failed", slog.Any("error", err))
+	} else {
+		slog.Info("Finalized setting up music service")
+	}
 
 	token, err := shared.EnvOrErr(DISCORD_KEY)
 	if err != nil {

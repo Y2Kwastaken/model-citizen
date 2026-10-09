@@ -26,12 +26,20 @@ type ytdlService struct {
 	downloading map[string]*sync.WaitGroup
 }
 
-func (s *ytdlService) Setup(ctx context.Context) {
+func (s *ytdlService) Setup(ctx context.Context) error {
+	if _, err := ytdlp.Install(ctx, nil); err != nil {
+		return fmt.Errorf("installing yt-dlp: %w", err)
+	}
 	// ffmpeg/ffprobe come from the image (PATH); never download a second copy
-	ytdlp.MustInstall(ctx, nil)
-	ytdlp.MustInstallFFmpeg(ctx, &ytdlp.InstallFFmpegOptions{DisableDownload: true})
-	ytdlp.MustInstallFFprobe(ctx, &ytdlp.InstallFFmpegOptions{DisableDownload: true})
-	ytdlp.MustInstallBun(ctx, nil)
+	if _, err := ytdlp.InstallFFmpeg(ctx, &ytdlp.InstallFFmpegOptions{DisableDownload: true}); err != nil {
+		return fmt.Errorf("finding ffmpeg: %w", err)
+	}
+	if _, err := ytdlp.InstallFFprobe(ctx, &ytdlp.InstallFFmpegOptions{DisableDownload: true}); err != nil {
+		return fmt.Errorf("finding ffprobe: %w", err)
+	}
+	if _, err := ytdlp.InstallBun(ctx, nil); err != nil {
+		return fmt.Errorf("installing bun: %w", err)
+	}
 
 	downloader := ytdlp.New().
 		Format("bestaudio/best").
@@ -43,6 +51,7 @@ func (s *ytdlService) Setup(ctx context.Context) {
 		PrintJSON()
 
 	s.downloader = downloader
+	return nil
 }
 
 func (s *ytdlService) Search(query string, ctx context.Context) (MusicDownload, error) {

@@ -24,6 +24,24 @@ RUN set -eux; \
     cp "/tmp/onnxruntime-linux-${arch}-${ONNXRUNTIME_VERSION}"/lib/libonnxruntime.so* /out/onnxruntime/; \
     rm -rf /tmp/onnxruntime.tgz /tmp/onnxruntime-linux-*
 
+# yt-dlp and bun for music, fetched here instead of at startup where go-ytdlp's
+# 30 s download limit can't fit them. the yt-dlp version must match go-ytdlp's
+# Version constant (constants.gen.go) or it downloads its own copy anyway
+ARG YTDLP_VERSION=2026.08.19
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64) ytdlp="yt-dlp_linux"; bun="bun-linux-x64" ;; \
+        aarch64|arm64) ytdlp="yt-dlp_linux_aarch64"; bun="bun-linux-aarch64" ;; \
+        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    mkdir -p /out/bin; \
+    curl -fsSL -o /out/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${ytdlp}"; \
+    curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/latest/download/${bun}.zip"; \
+    unzip -q /tmp/bun.zip -d /tmp; \
+    mv "/tmp/${bun}/bun" /out/bin/bun; \
+    chmod 755 /out/bin/yt-dlp /out/bin/bun; \
+    rm -rf /tmp/bun.zip "/tmp/${bun}"
+
 WORKDIR /src/discord-bot
 
 COPY shared/ /src/shared/
@@ -49,5 +67,6 @@ COPY --from=build /out/onnxruntime/ /usr/local/lib/
 COPY discord-bot/assets/wake/ /assets/wake/
 # onnxruntime's telemetry shells out for a device id and crashes without /bin/sh
 ENV ORT_DISABLE_TELEMETRY=1
+COPY --from=build /out/bin/ /usr/local/bin/
 COPY --from=build /out/app /bin/app
 CMD ["/bin/app"]

@@ -16,7 +16,8 @@ type MusicDownload struct {
 }
 
 type MusicDownloadService interface {
-	Setup(ctx context.Context)
+	// downloads what searching needs, music doesn't work until it succeeds
+	Setup(ctx context.Context) error
 	Search(query string, ctx context.Context) (MusicDownload, error)
 }
 
