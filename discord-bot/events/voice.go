@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,14 @@ const (
 	quietPoll = 50 * time.Millisecond
 	// silence put between someone's utterances when they're joined, 300 ms at 16 kHz
 	turnGap = 16000 * 3 / 10
+)
+
+// the wake word as transcription writes it. "hey model" anywhere, and the ways
+// it gets misheard ("a model", a bare "model") only at the start of a line,
+// where they can't be part of a real sentence
+var (
+	wakeAnywhere = regexp.MustCompile(`(?i)\b(hey|hay)[\s,.!?-]*model\b[\s,.!?-]*`)
+	wakeStart    = regexp.MustCompile(`(?i)^\W*(hey|hay|hi|a|ok|okay)?[\s,.!?-]*model\b[\s,.!?-]*`)
 )
 
 // one transcribed utterance
@@ -168,7 +177,7 @@ func transcribe(llm *network.Client, utterances []audio.Utterance, minimum time.
 				slog.Error("transcribing utterance", slog.String("user_id", utterance.User.String()), slog.Any("error", err))
 				return
 			}
-			texts[i] = strings.TrimSpace(text)
+			texts[i] = withoutWake(text)
 		})
 	}
 	wg.Wait()
@@ -180,6 +189,14 @@ func transcribe(llm *network.Client, utterances []audio.Utterance, minimum time.
 		}
 	}
 	return lines
+}
+
+// takes the wake word out of a transcript, the model copies whatever the
+// history is full of and every voice line would otherwise start with it
+func withoutWake(text string) string {
+	text = wakeAnywhere.ReplaceAllString(text, "")
+	text = wakeStart.ReplaceAllString(text, "")
+	return strings.TrimSpace(text)
 }
 
 // names everyone who spoke the way text messages are named, see speakerName
