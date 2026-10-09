@@ -62,7 +62,8 @@ a different path, set `MODEL_CITIZEN_CONFIG`.
 
 `[listen]` tunes the wake word and voice commands: `threshold` (how sure the wake word has to be), `quiet_level` (how
 loud counts as talking, in dBFS), `command_quiet` (the pause that ends a command) and `context` (how much of the
-conversation before the wake word goes along with it). With `level = "debug"`, `voice level` and `wake word near miss`
+conversation before the wake word goes along with it). A different wake word is a different `model` plus its
+`wake_names`, the spellings taken out of transcripts. With `level = "debug"`, `voice level` and `wake word near miss`
 lines in the logs show the numbers to tune against.
 
 ### `config/llm.toml`: the brain
@@ -88,4 +89,5 @@ Each module (`discord-bot`, `llm`, `shared`) is its own Go module. Run `go vet` 
 - Build and test the bot with `-tags nolibopusfile`, as the Dockerfile does.
 - The wake word tests need onnxruntime 1.29.x: point `ONNXRUNTIME_LIB` at `libonnxruntime.so`, or they skip.
 - After editing a `.proto`, regenerate from `shared/` with `go generate ./network`.
-- The wake word model is trained with openWakeWord; the training setup is in v1's `wakeword/` folder.
+- The wake word model is trained with openWakeWord; the training setup is in v1's `wakeword/` folder, and a copy
+  that trains other phrases lives in the config repo.

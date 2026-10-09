@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatalf("expected defaults, got %+v", cfg)
 	}
 }
@@ -46,7 +47,7 @@ max_tracks = 10
 	want.Music.VolumeDB = -20
 	want.Music.SearchTimeout = 30 * time.Second
 	want.Music.Cache.MaxTracks = 10
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("expected %+v, got %+v", want, cfg)
 	}
 }
@@ -65,10 +66,12 @@ volum_db = -20.0
 
 func TestLoadInvalidValuesError(t *testing.T) {
 	tests := map[string]string{
-		"bad duration":  "[voice]\njoin_timeout = \"soon\"",
-		"zero capacity": "[music]\nqueue_capacity = 0",
-		"bad log level": "[logging]\nlevel = \"loud\"",
-		"empty dir":     "[music.cache]\ndirectory = \"\"",
+		"bad duration":    "[voice]\njoin_timeout = \"soon\"",
+		"zero capacity":   "[music]\nqueue_capacity = 0",
+		"bad log level":   "[logging]\nlevel = \"loud\"",
+		"empty dir":       "[music.cache]\ndirectory = \"\"",
+		"no wake names":   "[listen]\nwake_names = []",
+		"empty wake name": "[listen]\nwake_names = [\"kay\", \"\"]",
 	}
 
 	for name, content := range tests {
@@ -77,5 +80,19 @@ func TestLoadInvalidValuesError(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+// a list in the file replaces the default list, it isn't added to
+func TestLoadWakeNamesReplaceDefault(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+[listen]
+wake_names = ["kay", "k"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.Listen.WakeNames, []string{"kay", "k"}) {
+		t.Fatalf("wake_names = %q, want [kay k]", cfg.Listen.WakeNames)
 	}
 }

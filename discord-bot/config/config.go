@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,9 @@ type Listen struct {
 	Directory string `toml:"directory"`
 	// the wake word model file in directory
 	Model string `toml:"model"`
+	// the ways transcription spells the name in the wake word, taken out of
+	// transcripts so the model never sees it
+	WakeNames []string `toml:"wake_names"`
 	// score from 0 to 1 that counts as hearing the wake word
 	Threshold float32 `toml:"threshold"`
 	// how soon the same person can wake it again
@@ -91,6 +95,7 @@ func Default() Config {
 			Library:      "/usr/local/lib/libonnxruntime.so",
 			Directory:    "/assets/wake/",
 			Model:        "hey_model.onnx",
+			WakeNames:    []string{"model"},
 			Threshold:    0.12,
 			Debounce:     3 * time.Second,
 			Window:       30 * time.Second,
@@ -175,6 +180,12 @@ func (c Config) validate() error {
 	}
 	if c.Listen.Model == "" {
 		errs = append(errs, errors.New("listen.model must not be empty"))
+	}
+	if len(c.Listen.WakeNames) == 0 {
+		errs = append(errs, errors.New("listen.wake_names must not be empty"))
+	}
+	if slices.Contains(c.Listen.WakeNames, "") {
+		errs = append(errs, errors.New("listen.wake_names must not contain an empty name"))
 	}
 	if c.Listen.Threshold <= 0 || c.Listen.Threshold > 1 {
 		errs = append(errs, fmt.Errorf("listen.threshold must be above 0 and at most 1, got %v", c.Listen.Threshold))

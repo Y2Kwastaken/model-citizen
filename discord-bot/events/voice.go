@@ -25,13 +25,27 @@ const (
 	turnGap = 16000 * 3 / 10
 )
 
-// the wake word as transcription writes it. "hey model" anywhere, and the ways
-// it gets misheard ("a model", a bare "model") only at the start of a line,
+// the wake word as transcription writes it. "hey <name>" anywhere, and the
+// ways it gets misheard ("a <name>", a bare name) only at the start of a line,
 // where they can't be part of a real sentence
-var (
-	wakeAnywhere = regexp.MustCompile(`(?i)\b(hey|hay)[\s,.!?-]*model\b[\s,.!?-]*`)
-	wakeStart    = regexp.MustCompile(`(?i)^\W*(hey|hay|hi|a|ok|okay)?[\s,.!?-]*model\b[\s,.!?-]*`)
-)
+type wakeWord struct {
+	anywhere *regexp.Regexp
+	start    *regexp.Regexp
+}
+
+// names are the spellings of the name in the wake word, listen.wake_names
+func newWakeWord(names []string) wakeWord {
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = regexp.QuoteMeta(name)
+	}
+	name := "(" + strings.Join(quoted, "|") + ")"
+
+	return wakeWord{
+		anywhere: regexp.MustCompile(`(?i)\b(hey|hay)[\s,.!?-]*` + name + `\b[\s,.!?-]*`),
+		start:    regexp.MustCompile(`(?i)^\W*(hey|hay|hi|a|ok|okay)?[\s,.!?-]*` + name + `\b[\s,.!?-]*`),
+	}
+}
 
 // one transcribed utterance
 type line struct {
@@ -45,16 +59,17 @@ type line struct {
 // replies in the voice channel's text chat and out loud
 func WakeHandler(client *bot.Client, services *state.GlobalServices) func(snowflake.ID, *audio.OpusListener) {
 	return func(guild snowflake.ID, listener *audio.OpusListener) {
+		word := newWakeWord(services.Config.Listen.WakeNames)
 		// audio before this was already transcribed for an earlier wake
 		var heard time.Time
 		for wake := range listener.Wakes() {
-			heard = answerWake(client, services, guild, listener, wake, heard)
+			heard = answerWake(client, services, guild, listener, word, wake, heard)
 		}
 	}
 }
 
 // returns how far the guild's audio has now been transcribed
-func answerWake(client *bot.Client, services *state.GlobalServices, guild snowflake.ID, listener *audio.OpusListener, wake audio.Wake, heard time.Time) time.Time {
+func answerWake(client *bot.Client, services *state.GlobalServices, guild snowflake.ID, listener *audio.OpusListener, word wakeWord, wake audio.Wake, heard time.Time) time.Time {
 	listen := services.Config.Listen
 	picked := time.Now()
 	until := awaitQuiet(listener, wake, listen.CommandQuiet, listen.CommandMax)
@@ -73,7 +88,7 @@ func answerWake(client *bot.Client, services *state.GlobalServices, guild snowfl
 	utterances := joinTurns(listener.Utterances(from, until))
 
 	start := time.Now()
-	lines := transcribe(services.Brain, utterances, listen.MinUtterance)
+	lines := transcribe(services.Brain, utterances, listen.MinUtterance, word)
 	transcribing := time.Since(start)
 	if len(lines) == 0 {
 		slog.Info("wake word with nothing transcribed", slog.String("guild_id", guild.String()), slog.Duration("transcribing", transcribing))
@@ -154,7 +169,7 @@ func joinTurns(utterances []audio.Utterance) []audio.Utterance {
 }
 
 // transcribes every utterance long enough to be speech at once, oldest first
-func transcribe(llm *network.Client, utterances []audio.Utterance, minimum time.Duration) []line {
+func transcribe(llm *network.Client, utterances []audio.Utterance, minimum time.Duration, word wakeWord) []line {
 	ctx, cancel := context.WithTimeout(context.Background(), transcribeTimeout)
 	defer cancel()
 
@@ -177,7 +192,7 @@ func transcribe(llm *network.Client, utterances []audio.Utterance, minimum time.
 				slog.Error("transcribing utterance", slog.String("user_id", utterance.User.String()), slog.Any("error", err))
 				return
 			}
-			texts[i] = withoutWake(text)
+			texts[i] = word.strip(text)
 		})
 	}
 	wg.Wait()
@@ -193,9 +208,9 @@ func transcribe(llm *network.Client, utterances []audio.Utterance, minimum time.
 
 // takes the wake word out of a transcript, the model copies whatever the
 // history is full of and every voice line would otherwise start with it
-func withoutWake(text string) string {
-	text = wakeAnywhere.ReplaceAllString(text, "")
-	text = wakeStart.ReplaceAllString(text, "")
+func (w wakeWord) strip(text string) string {
+	text = w.anywhere.ReplaceAllString(text, "")
+	text = w.start.ReplaceAllString(text, "")
 	return strings.TrimSpace(text)
 }
 

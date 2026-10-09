@@ -43,6 +43,10 @@ onnxruntime = "/usr/local/lib/libonnxruntime.so"
 directory = "/assets/wake/"
 # The wake word model in directory.
 model = "hey_model.onnx"
+# How transcription spells the name in the wake word. It's taken out of
+# transcripts, "hey <name>" anywhere and a misheard "a <name>" or bare name at
+# the start of a line, so the model never sees it.
+wake_names = ["model"]
 # Score from 0 to 1 that counts as the wake word. Lower hears it more often
 # and false triggers more. Set logging to debug to see near misses.
 threshold = 0.12
