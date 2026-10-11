@@ -92,6 +92,10 @@ func main() {
 		bot.WithCacheConfigOpts(
 			cache.WithCaches(
 				cache.FlagVoiceStates,
+				// guilds, channels and roles work out permissions, kick checks the caller's
+				cache.FlagGuilds,
+				cache.FlagChannels,
+				cache.FlagRoles,
 			),
 		),
 		bot.WithVoiceManagerConfigOpts(

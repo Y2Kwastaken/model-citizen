@@ -54,6 +54,8 @@ func All(services *state.GlobalServices) []Action {
 		playAction(services),
 		stopAction(services),
 		skipAction(services),
+		kickAction(),
+		disableAction(),
 	}
 }
 
