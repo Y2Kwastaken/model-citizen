@@ -88,6 +88,7 @@ func main() {
 				gateway.IntentGuildVoiceStates,
 				gateway.IntentGuildMessages,
 				gateway.IntentMessageContent,
+				gateway.IntentGuildModeration,
 			)),
 		bot.WithCacheConfigOpts(
 			cache.WithCaches(
