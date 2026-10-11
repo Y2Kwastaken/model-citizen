@@ -26,6 +26,10 @@ func newMemoryServer(brain model.LanguageModel, historySize int) *memoryServer {
 }
 
 func (s *memoryServer) Memorize(ctx context.Context, req *pb.MemorizeRequest) (*pb.MemorizeResponse, error) {
+	if !s.brain.HasFeature(model.MEMORY) {
+		return nil, status.Error(codes.Unimplemented, "the llm doesn't remember")
+	}
+
 	source := req.GetSource()
 	if source == nil {
 		return nil, status.Error(codes.InvalidArgument, "source is required")
@@ -46,6 +50,10 @@ func (s *memoryServer) Memorize(ctx context.Context, req *pb.MemorizeRequest) (*
 }
 
 func (s *memoryServer) Recall(ctx context.Context, req *pb.RecallRequest) (*pb.RecallResponse, error) {
+	if !s.brain.HasFeature(model.MEMORY) {
+		return nil, status.Error(codes.Unimplemented, "the llm doesn't remember")
+	}
+
 	source := req.GetSource()
 	if source == nil {
 		return nil, status.Error(codes.InvalidArgument, "source is required")

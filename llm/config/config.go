@@ -20,6 +20,8 @@ type Config struct {
 	Stt Stt `toml:"stt"`
 	// optional, without it the llm doesn't speak
 	Tts Tts `toml:"tts"`
+	// optional, without it serious tools go to the chat model
+	Tools Tools `toml:"tools"`
 }
 
 // a system prompt and the voice it speaks with
@@ -40,11 +42,13 @@ type Rotation struct {
 }
 
 // the files in the llm config directory. chat is required, leave stt or tts
-// out and the llm doesn't transcribe or speak
+// out and the llm doesn't transcribe or speak, leave tools out and serious
+// tools go to the chat model
 const (
-	chatFile = "chat.toml"
-	sttFile  = "stt.toml"
-	ttsFile  = "tts.toml"
+	chatFile  = "chat.toml"
+	sttFile   = "stt.toml"
+	ttsFile   = "tts.toml"
+	toolsFile = "tools.toml"
 )
 
 // every key chat.toml must set, there are no defaults
@@ -82,6 +86,15 @@ var requiredSttKeys = [][]string{
 	{"stt", "rotation", "parole"},
 }
 
+// every key tools.toml must set when it's there
+var requiredToolsKeys = [][]string{
+	{"tools", "prompt"},
+	{"tools", "rotation", "reward"},
+	{"tools", "rotation", "punish"},
+	{"tools", "rotation", "kill"},
+	{"tools", "rotation", "parole"},
+}
+
 // Load decodes the config files in dir. There are no defaults, so each file
 // that's there must set every one of its required keys.
 func Load(dir string) (Config, error) {
@@ -98,6 +111,10 @@ func Load(dir string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	tools, err := decodeOptionalFile(filepath.Join(dir, toolsFile), &cfg, requiredToolsKeys)
+	if err != nil {
+		return Config{}, err
+	}
 
 	for name, personality := range cfg.Chat.Personalities {
 		if !filepath.IsAbs(personality.Prompt) {
@@ -105,8 +122,11 @@ func Load(dir string) (Config, error) {
 			cfg.Chat.Personalities[name] = personality
 		}
 	}
+	if tools && !filepath.IsAbs(cfg.Tools.Prompt) {
+		cfg.Tools.Prompt = filepath.Join(dir, cfg.Tools.Prompt)
+	}
 
-	if err := cfg.validate(stt, tts); err != nil {
+	if err := cfg.validate(stt, tts, tools); err != nil {
 		return Config{}, fmt.Errorf("invalid llm config %s: %w", dir, err)
 	}
 
@@ -144,7 +164,7 @@ func decodeOptionalFile(path string, cfg *Config, required [][]string) (bool, er
 func unknownKeys(md toml.MetaData) []string {
 	var keys []string
 	for _, key := range md.Undecoded() {
-		if len(key) > 3 && key[0] == "chat" && key[1] == "clients" && key[2] == "extra_body" {
+		if len(key) > 3 && (key[0] == "chat" || key[0] == "tools") && key[1] == "clients" && key[2] == "extra_body" {
 			continue
 		}
 		keys = append(keys, key.String())
@@ -167,7 +187,7 @@ func (r Rotation) Policy() shared.RotationPolicy {
 	return shared.RotationPolicy{Reward: r.Reward, Punish: r.Punish, Kill: r.Kill, Parole: r.Parole}
 }
 
-func (c Config) validate(stt bool, tts bool) error {
+func (c Config) validate(stt bool, tts bool, tools bool) error {
 	var errs []error
 
 	if err := c.Chat.validate(); err != nil {
@@ -193,6 +213,11 @@ func (c Config) validate(stt bool, tts bool) error {
 	}
 	if tts {
 		if err := c.Tts.validate(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if tools {
+		if err := c.Tools.validate(); err != nil {
 			errs = append(errs, err)
 		}
 	}

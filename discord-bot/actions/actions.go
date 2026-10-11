@@ -15,6 +15,8 @@ type Action struct {
 	Name        string
 	Description string
 	Params      []Param
+	// a no nonsense task, the llm hands it to its tool model instead of the chat model
+	Serious bool
 	// returns the message for the user, an error only for real failures
 	Run func(ctx context.Context, req Request) (string, error)
 }

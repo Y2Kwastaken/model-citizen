@@ -10,14 +10,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/Y2Kwastaken/model-citizen/llm/memory"
 	"github.com/Y2Kwastaken/model-citizen/llm/model"
 	"github.com/Y2Kwastaken/model-citizen/llm/util"
 	pb "github.com/Y2Kwastaken/model-citizen/shared/network/gen/modelcitizen/v1"
 )
 
-// chatServer serves pb.ChatService, replying to the history already stored at
-// the channel. The bot stores the user's message with MemoryService.Memorize
-// first, using the decimal channel id as MemorySource.where
+// chatServer serves pb.ChatService, replying to the request's new messages and
+// the history stored at the channel. Messages the bot doesn't reply to go in
+// with MemoryService.Memorize, using the decimal channel id as MemorySource.where
 type chatServer struct {
 	pb.UnimplementedChatServiceServer
 
@@ -43,6 +44,10 @@ func newChatServer(brain model.LanguageModel, defaultPersonality string, replyTi
 }
 
 func (s *chatServer) Chat(ctx context.Context, req *pb.ChatRequest) (*pb.ChatResponse, error) {
+	if len(req.GetMessages()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "messages needs at least one message")
+	}
+
 	// the caller's deadline still applies if it is the shorter one
 	ctx, cancel := context.WithTimeout(ctx, s.replyTimeout)
 	defer cancel()
@@ -55,8 +60,13 @@ func (s *chatServer) Chat(ctx context.Context, req *pb.ChatRequest) (*pb.ChatRes
 		Who:   req.GetWho(),
 	}
 
+	incoming := make([]memory.Memory, len(req.GetMessages()))
+	for i, message := range req.GetMessages() {
+		incoming[i] = fromProto(message)
+	}
+
 	start := time.Now()
-	reply, err := s.brain.Chat(ctx, source)
+	reply, err := s.brain.Chat(ctx, source, incoming)
 	slog.Info("chat handled", slog.Int64("guild_id", source.Id), slog.Duration("took", time.Since(start)))
 	if err != nil {
 		// the caller hanging up or running out of time keeps its own code

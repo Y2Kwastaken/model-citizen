@@ -25,7 +25,9 @@ type Tool struct {
 	Name        string
 	Description string
 	Parameters  map[string]any
-	Run         func(ctx context.Context, call Call) (string, error)
+	// handed to the llm's tool model when it has one
+	Serious bool
+	Run     func(ctx context.Context, call Call) (string, error)
 }
 
 func (c *Client) RegisterTools(ctx context.Context, tools []Tool) {
@@ -48,7 +50,7 @@ func (c *Client) RegisterTools(ctx context.Context, tools []Tool) {
 func (c *Client) serveOnce(ctx context.Context, tools []Tool, byName map[string]Tool) error {
 	// the llm forgets tools when it restarts so they are registered on every connect
 	for _, tool := range tools {
-		req := &pb.RegisterToolRequest{Name: tool.Name, Description: tool.Description}
+		req := &pb.RegisterToolRequest{Name: tool.Name, Description: tool.Description, Serious: tool.Serious}
 		if tool.Parameters != nil {
 			params, err := structpb.NewStruct(tool.Parameters)
 			if err != nil {

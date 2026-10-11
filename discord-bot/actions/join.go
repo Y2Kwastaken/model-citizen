@@ -12,6 +12,7 @@ func joinAction(services *state.GlobalServices) Action {
 	return Action{
 		Name:        "join",
 		Description: "joins the user's voice channel",
+		Serious:     true,
 		Run:         joinHandler(services),
 	}
 }

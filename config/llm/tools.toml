@@ -1,0 +1,51 @@
+# model-citizen llm configuration: tool model
+#
+# A small model that runs the bot's serious tools (music, joining voice...)
+# when the chat model hands a task to it. It gets only the task, never the
+# conversation, and calls tools without replying. Optional: without this file
+# serious tools go to the chat model like any other. Once it's here every key
+# is required. See chat.toml for durations and API keys.
+
+[tools]
+# The system prompt, relative to this folder.
+prompt = "tools.md"
+
+# Like [chat.rotation], for the tool model.
+[tools.rotation]
+reward = "1s"
+punish = "3s"
+kill = "8s"
+parole = "5m"
+
+# Tool model clients, tried in order. Same settings as [[chat.clients]]. Small
+# and fast is the point: a 3B to 8B model with good tool calling, a low
+# temperature and no reasoning. One free model per provider, each checked to
+# call the right tool, so one provider being down or rate limited doesn't take
+# the rest with it.
+
+[[tools.clients]]
+model = "ministral-8b-latest"
+base_url = "https://api.mistral.ai/v1"
+api_key_env = "MISTRAL_KEY"
+temperature = 0
+
+[[tools.clients]]
+model = "openai/gpt-oss-20b"
+base_url = "https://api.groq.com/openai/v1"
+api_key_env = "GROQ_KEY"
+temperature = 0
+reasoning_effort = "low"
+
+[[tools.clients]]
+model = "nvidia/nemotron-3.5-lightning-30b-a3b"
+base_url = "https://integrate.api.nvidia.com/v1"
+api_key_env = "MODEL_AUTH_KEY"
+temperature = 0
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[[tools.clients]]
+model = "gpt-oss:20b"
+base_url = "https://ollama.com/v1"
+api_key_env = "OLLAMA_MODEL_KEY"
+temperature = 0
+reasoning_effort = "low"

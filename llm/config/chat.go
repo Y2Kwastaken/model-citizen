@@ -41,9 +41,13 @@ func (c ChatClient) Client() clients.ChatClient {
 }
 
 func (c Chat) ChatClients() []clients.ChatClient {
-	out := make([]clients.ChatClient, len(c.Clients))
-	for i, client := range c.Clients {
-		out[i] = client.Client()
+	return chatClients(c.Clients)
+}
+
+func chatClients(entries []ChatClient) []clients.ChatClient {
+	out := make([]clients.ChatClient, len(entries))
+	for i, entry := range entries {
+		out[i] = entry.Client()
 	}
 	return out
 }

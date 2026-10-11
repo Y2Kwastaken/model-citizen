@@ -23,10 +23,12 @@ const (
 )
 
 type RegisterToolRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	Parameters    *structpb.Struct       `protobuf:"bytes,3,opt,name=parameters,proto3" json:"parameters,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Parameters  *structpb.Struct       `protobuf:"bytes,3,opt,name=parameters,proto3" json:"parameters,omitempty"`
+	// a no nonsense task, handed to the llm's tool model when it has one
+	Serious       bool `protobuf:"varint,4,opt,name=serious,proto3" json:"serious,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -80,6 +82,13 @@ func (x *RegisterToolRequest) GetParameters() *structpb.Struct {
 		return x.Parameters
 	}
 	return nil
+}
+
+func (x *RegisterToolRequest) GetSerious() bool {
+	if x != nil {
+		return x.Serious
+	}
+	return false
 }
 
 type RegisterToolResponse struct {
@@ -386,13 +395,14 @@ var File_modelcitizen_v1_tools_proto protoreflect.FileDescriptor
 
 const file_modelcitizen_v1_tools_proto_rawDesc = "" +
 	"\n" +
-	"\x1bmodelcitizen/v1/tools.proto\x12\x0fmodelcitizen.v1\x1a\x1cgoogle/protobuf/struct.proto\"\x84\x01\n" +
+	"\x1bmodelcitizen/v1/tools.proto\x12\x0fmodelcitizen.v1\x1a\x1cgoogle/protobuf/struct.proto\"\x9e\x01\n" +
 	"\x13RegisterToolRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x127\n" +
 	"\n" +
 	"parameters\x18\x03 \x01(\v2\x17.google.protobuf.StructR\n" +
-	"parameters\"\x16\n" +
+	"parameters\x12\x18\n" +
+	"\aserious\x18\x04 \x01(\bR\aserious\"\x16\n" +
 	"\x14RegisterToolResponse\"\x8f\x01\n" +
 	"\bToolCall\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +

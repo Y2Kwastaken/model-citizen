@@ -14,7 +14,7 @@ Each module has its own `go.mod`; `discord-bot` and `llm` import `shared` throug
   sits next to this folder at `../model-citizen` (useful for reference, its `main` no longer matches the remote).
 - **Commits:** no Claude `Co-Authored-By` (or any other attribution) lines in commits or PRs.
 - **Config:** `config/model-citizen.toml` is the bot's, every value shown is its default. `config/llm/` is the
-  llm's: `chat.toml`, plus `stt.toml` and `tts.toml` which are optional files. No defaults, every key required.
+  llm's: `chat.toml`, plus `stt.toml`, `tts.toml` and `tools.toml` which are optional files. No defaults, every key required.
   Personality prompts live in `config/llm/personalities/`. Secrets stay in `.env` (gitignored), named by
   `api_key_env` in those files.
 - **Run:** `docker compose up -d --build`. The bot reaches the llm at `llm:50051` (`LLM_ADDRESS`); the llm's port isn't
@@ -72,7 +72,8 @@ Each module has its own `go.mod`; `discord-bot` and `llm` import `shared` throug
   validation, and the toml with a comment, together. Settings are read once and never change at runtime.
 - **Bot features are actions.** Write it once in `discord-bot/actions/`; it becomes both a slash command
   (`router.CommandsFrom`) and an llm tool (`tools.ToolsFrom`). A long action checks `Request.Background` and finishes
-  its slow work in a goroutine when the llm is waiting.
+  its slow work in a goroutine when the llm is waiting. `Serious` actions go to the llm's small tool model
+  (`tools.toml`), which the chat model hands tasks to; the rest stay with the chat model.
 - Never block a disgo callback or the 20 ms audio tick: hand work to a goroutine or a buffered channel with a
   non-blocking send.
 

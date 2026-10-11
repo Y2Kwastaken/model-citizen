@@ -18,7 +18,8 @@ import (
 // how long a graceful shutdown may take before open calls are cut off
 const shutdownTimeout = 5 * time.Second
 
-func StartGrpc(brain model.LanguageModel, cfg config.Config, address string) error {
+// toolBrain takes the bot's serious tools, nil when there's no tool model
+func StartGrpc(brain model.LanguageModel, toolBrain model.LanguageModel, cfg config.Config, address string) error {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return err
@@ -28,7 +29,7 @@ func StartGrpc(brain model.LanguageModel, cfg config.Config, address string) err
 	server := grpc.NewServer()
 	pb.RegisterMemoryServiceServer(server, newMemoryServer(brain, chat.HistorySize))
 	pb.RegisterChatServiceServer(server, newChatServer(brain, chat.DefaultPersonality, chat.ReplyTimeout))
-	pb.RegisterToolServiceServer(server, newToolServer(brain))
+	pb.RegisterToolServiceServer(server, newToolServer(brain, toolBrain))
 
 	// without stt.toml or tts.toml their half answers Unimplemented
 	speech, err := newSpeechServer(brain, cfg)

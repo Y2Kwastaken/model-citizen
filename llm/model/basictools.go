@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Y2Kwastaken/model-citizen/llm/memory"
@@ -97,6 +98,54 @@ func SwitchPersonalityTool(brain LanguageModel) tools.Tool {
 			}
 
 			return "set personality to" + parsed.Name, nil
+		},
+	}
+}
+
+// the name of the tool model's one system prompt
+const ToolPrompt = "tools"
+
+// hands a serious task to the tool model, which runs the bot's serious tools
+// without chatting and reports what they did
+func HandoffTool(toolBrain LanguageModel) tools.Tool {
+	return tools.Tool{
+		Function: shared.FunctionDefinitionParam{
+			Name:        "bot_command",
+			Description: openai.String("runs a bot command for you: playing, skipping or stopping music, joining or leaving voice and the like. say plainly what to do"),
+			Parameters: shared.FunctionParameters{
+				"type": "object",
+				"properties": map[string]any{
+					"task": map[string]any{"type": "string", "description": "what to do, e.g. play never gonna give you up"},
+				},
+				"required": []string{"task"},
+			},
+		},
+		Executor: func(ctx context.Context, src util.Source, args string) (string, error) {
+			type handoffArgs struct {
+				Task string `json:"task"`
+			}
+
+			var parsed handoffArgs
+			if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+				return "", err
+			}
+
+			// the tool model has one prompt, set for whichever guild it acts in
+			toolBrain.SystemMemory(src.Id, ToolPrompt)
+			calls, err := toolBrain.Act(ctx, src, parsed.Task)
+			if err != nil {
+				return "", err
+			}
+
+			if len(calls) == 0 {
+				return "nothing was done", nil
+			}
+
+			results := make([]string, len(calls))
+			for i, call := range calls {
+				results[i] = call.Name + ": " + call.Result
+			}
+			return strings.Join(results, "\n"), nil
 		},
 	}
 }

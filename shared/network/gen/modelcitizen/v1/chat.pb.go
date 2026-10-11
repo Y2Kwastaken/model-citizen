@@ -26,7 +26,10 @@ type ChatRequest struct {
 	GuildId   int64                  `protobuf:"varint,1,opt,name=guild_id,json=guildId,proto3" json:"guild_id,omitempty"`
 	ChannelId int64                  `protobuf:"varint,2,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 	// the user who asked, passed on to tool calls as who
-	Who           string `protobuf:"bytes,3,opt,name=who,proto3" json:"who,omitempty"`
+	Who string `protobuf:"bytes,3,opt,name=who,proto3" json:"who,omitempty"`
+	// what's new since the last reply, oldest first. kept in the channel's
+	// history when the llm remembers, and always part of the prompt
+	Messages      []*Memory `protobuf:"bytes,4,rep,name=messages,proto3" json:"messages,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -82,6 +85,13 @@ func (x *ChatRequest) GetWho() string {
 	return ""
 }
 
+func (x *ChatRequest) GetMessages() []*Memory {
+	if x != nil {
+		return x.Messages
+	}
+	return nil
+}
+
 type ChatResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Reply         string                 `protobuf:"bytes,1,opt,name=reply,proto3" json:"reply,omitempty"`
@@ -130,12 +140,13 @@ var File_modelcitizen_v1_chat_proto protoreflect.FileDescriptor
 
 const file_modelcitizen_v1_chat_proto_rawDesc = "" +
 	"\n" +
-	"\x1amodelcitizen/v1/chat.proto\x12\x0fmodelcitizen.v1\"Y\n" +
+	"\x1amodelcitizen/v1/chat.proto\x12\x0fmodelcitizen.v1\x1a\x1cmodelcitizen/v1/memory.proto\"\x8e\x01\n" +
 	"\vChatRequest\x12\x19\n" +
 	"\bguild_id\x18\x01 \x01(\x03R\aguildId\x12\x1d\n" +
 	"\n" +
 	"channel_id\x18\x02 \x01(\x03R\tchannelId\x12\x10\n" +
-	"\x03who\x18\x03 \x01(\tR\x03who\"$\n" +
+	"\x03who\x18\x03 \x01(\tR\x03who\x123\n" +
+	"\bmessages\x18\x04 \x03(\v2\x17.modelcitizen.v1.MemoryR\bmessages\"$\n" +
 	"\fChatResponse\x12\x14\n" +
 	"\x05reply\x18\x01 \x01(\tR\x05reply2R\n" +
 	"\vChatService\x12C\n" +
@@ -157,15 +168,17 @@ var file_modelcitizen_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_modelcitizen_v1_chat_proto_goTypes = []any{
 	(*ChatRequest)(nil),  // 0: modelcitizen.v1.ChatRequest
 	(*ChatResponse)(nil), // 1: modelcitizen.v1.ChatResponse
+	(*Memory)(nil),       // 2: modelcitizen.v1.Memory
 }
 var file_modelcitizen_v1_chat_proto_depIdxs = []int32{
-	0, // 0: modelcitizen.v1.ChatService.Chat:input_type -> modelcitizen.v1.ChatRequest
-	1, // 1: modelcitizen.v1.ChatService.Chat:output_type -> modelcitizen.v1.ChatResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: modelcitizen.v1.ChatRequest.messages:type_name -> modelcitizen.v1.Memory
+	0, // 1: modelcitizen.v1.ChatService.Chat:input_type -> modelcitizen.v1.ChatRequest
+	1, // 2: modelcitizen.v1.ChatService.Chat:output_type -> modelcitizen.v1.ChatResponse
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_modelcitizen_v1_chat_proto_init() }
@@ -173,6 +186,7 @@ func file_modelcitizen_v1_chat_proto_init() {
 	if File_modelcitizen_v1_chat_proto != nil {
 		return
 	}
+	file_modelcitizen_v1_memory_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -38,29 +38,35 @@ func ChatListener(services *state.GlobalServices) bot.EventListener {
 			return
 		}
 
-		// off the gateway, remember runs before reply so the reply sees the message
+		// off the gateway, the llm call is slow
 		go handle(e.Client(), services.Brain, e.GuildID, message, content)
 	})
 }
 
 func handle(client *bot.Client, llm *network.Client, guild snowflake.ID, message discord.Message, content string) {
 	channel := message.ChannelID
+	said := network.Message{Sender: speakerName(message), Content: content, At: message.CreatedAt}
 
-	ctx, cancel := context.WithTimeout(context.Background(), rememberTimeout)
-	err := llm.Remember(ctx, guild, channel, speakerName(message), content, message.CreatedAt)
-	cancel()
-	if err != nil {
-		slog.Error("storing message in llm history", slog.String("channel_id", channel.String()), slog.Any("error", err))
-	}
-
-	if !shouldRespond(client.ID(), message) {
+	// a message being replied to goes in with the reply, the rest are only remembered
+	if shouldRespond(client.ID(), message) {
+		respond(client, llm, guild, channel, message.ID, message.Author.ID, []network.Message{said})
 		return
 	}
-	respond(client, llm, guild, channel, message.ID, message.Author.ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), rememberTimeout)
+	err := llm.Remember(ctx, guild, channel, said)
+	cancel()
+	switch status.Code(err) {
+	case codes.OK:
+	case codes.Unimplemented:
+		slog.Debug("llm doesn't remember, message not stored", slog.String("channel_id", channel.String()))
+	default:
+		slog.Error("storing message in llm history", slog.String("channel_id", channel.String()), slog.Any("error", err))
+	}
 }
 
 // posts the llm's reply and returns it, empty when nothing was posted
-func respond(client *bot.Client, llm *network.Client, guild, channel, messageID, user snowflake.ID) string {
+func respond(client *bot.Client, llm *network.Client, guild, channel, messageID, user snowflake.ID, messages []network.Message) string {
 	ctx, cancel := context.WithTimeout(context.Background(), replyTimeout)
 	defer cancel()
 
@@ -72,7 +78,7 @@ func respond(client *bot.Client, llm *network.Client, guild, channel, messageID,
 	}()
 
 	start := time.Now()
-	reply, err := llm.Reply(ctx, guild, channel, user)
+	reply, err := llm.Reply(ctx, guild, channel, user, messages)
 	slog.Debug("reply call", slog.String("channel_id", channel.String()), slog.Duration("took", time.Since(start)))
 	if err != nil {
 		slog.Error("llm reply", slog.String("channel_id", channel.String()), slog.Any("error", err))

@@ -26,6 +26,8 @@ type toolServer struct {
 	pb.UnimplementedToolServiceServer
 
 	brain model.LanguageModel
+	// takes the serious tools, nil when there's no tool model and the brain takes them
+	toolBrain model.LanguageModel
 
 	// the bot's open stream, nil while no bot is connected
 	block sync.Mutex
@@ -35,8 +37,8 @@ type toolServer struct {
 	nextID atomic.Uint64
 }
 
-func newToolServer(brain model.LanguageModel) *toolServer {
-	return &toolServer{brain: brain}
+func newToolServer(brain model.LanguageModel, toolBrain model.LanguageModel) *toolServer {
+	return &toolServer{brain: brain, toolBrain: toolBrain}
 }
 
 func (s *toolServer) RegisterTool(ctx context.Context, req *pb.RegisterToolRequest) (*pb.RegisterToolResponse, error) {
@@ -57,7 +59,12 @@ func (s *toolServer) RegisterTool(ctx context.Context, req *pb.RegisterToolReque
 		function.Parameters = req.GetParameters().AsMap()
 	}
 
-	toolSet, err := s.brain.ToolSet()
+	target := s.brain
+	if req.GetSerious() && s.toolBrain != nil {
+		target = s.toolBrain
+	}
+
+	toolSet, err := target.ToolSet()
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "target model doesn't support tools")
 	}

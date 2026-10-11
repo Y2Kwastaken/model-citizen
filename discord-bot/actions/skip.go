@@ -10,6 +10,7 @@ func skipAction(services *state.GlobalServices) Action {
 	return Action{
 		Name:        "skip",
 		Description: "skips the song playing now and moves on to the next one in the queue",
+		Serious:     true,
 		Run:         skipHandler(services),
 	}
 }

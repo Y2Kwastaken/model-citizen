@@ -95,20 +95,14 @@ func answerWake(client *bot.Client, services *state.GlobalServices, guild snowfl
 		return until
 	}
 
-	start = time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), rememberTimeout)
-	defer cancel()
 	names := voiceNames(client, guild, lines)
-	for _, line := range lines {
-		err := services.Brain.Remember(ctx, guild, channel, names[line.user], line.text, line.at)
-		if err != nil {
-			slog.Error("storing voice line in llm history", slog.String("channel_id", channel.String()), slog.Any("error", err))
-		}
+	messages := make([]network.Message, len(lines))
+	for i, line := range lines {
+		messages[i] = network.Message{Sender: names[line.user], Content: line.text, At: line.at}
 	}
-	remembering := time.Since(start)
 
 	start = time.Now()
-	reply := respond(client, services.Brain, guild, channel, 0, wake.User)
+	reply := respond(client, services.Brain, guild, channel, 0, wake.User, messages)
 	replying := time.Since(start)
 
 	// when the bot started talking back, or posted its reply if it didn't speak
@@ -128,7 +122,6 @@ func answerWake(client *bot.Client, services *state.GlobalServices, guild snowfl
 		slog.Duration("queued", picked.Sub(wake.At)),
 		slog.Duration("listening", until.Sub(picked)),
 		slog.Duration("transcribing", transcribing),
-		slog.Duration("remembering", remembering),
 		slog.Duration("replying", replying),
 		slog.Duration("waiting", answered.Sub(until)),
 	)

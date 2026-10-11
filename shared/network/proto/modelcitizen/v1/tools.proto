@@ -10,6 +10,8 @@ message RegisterToolRequest {
   string name = 1;
   string description = 2;
   google.protobuf.Struct parameters = 3;
+  // a no nonsense task, handed to the llm's tool model when it has one
+  bool serious = 4;
 }
 
 message RegisterToolResponse {}

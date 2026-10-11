@@ -182,7 +182,7 @@ func (m *brainModel) SystemMemoryName(id int64) (string, bool) {
 	return sid, ok
 }
 
-func (m *brainModel) Chat(ctx context.Context, source util.Source) (string, error) {
+func (m *brainModel) Chat(ctx context.Context, source util.Source, incoming []memory.Memory) (string, error) {
 	if !m.HasFeature(CHAT) {
 		return "", fmt.Errorf("this brain does not support chatting")
 	}
@@ -192,6 +192,15 @@ func (m *brainModel) Chat(ctx context.Context, source util.Source) (string, erro
 		return "", err
 	}
 
+	// the prompt takes the new messages from here, not the history, which
+	// forgets them when memory is off
+	prompt := slices.Concat(history.Ordered(), incoming)
+	for _, mem := range incoming {
+		if _, _, err := history.Store(mem); err != nil {
+			return "", err
+		}
+	}
+
 	if m.chatters.Len() == 0 {
 		return "", fmt.Errorf("no chat supported models in rotation")
 	}
@@ -199,7 +208,7 @@ func (m *brainModel) Chat(ctx context.Context, source util.Source) (string, erro
 	entry := m.chatters.Current()
 	current := entry.Value
 
-	params := current.Params(m.messages(source.Id, history.Ordered()))
+	params := current.Params(m.messages(source.Id, prompt))
 	toolParams := m.toolParams()
 
 	var calls []memory.ToolCall
@@ -300,6 +309,58 @@ func (m *brainModel) Chat(ctx context.Context, source util.Source) (string, erro
 	return reply, nil
 }
 
+func (m *brainModel) Act(ctx context.Context, source util.Source, request string) ([]memory.ToolCall, error) {
+	if !m.HasFeature(TOOL) {
+		return nil, fmt.Errorf("this brain does not support tools")
+	}
+
+	toolParams := m.toolParams()
+	if len(toolParams) == 0 {
+		return nil, fmt.Errorf("no tools registered")
+	}
+
+	if m.chatters.Len() == 0 {
+		return nil, fmt.Errorf("no chat supported models in rotation")
+	}
+	current := m.chatters.Current().Value
+
+	task := memory.Memory{CreatedAt: time.Now(), Content: request, Owner: memory.OTHER}
+	params := current.Params(m.messages(source.Id, []memory.Memory{task}))
+	params.Tools = toolParams
+	params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: openai.String("required")}
+
+	start := time.Now()
+	completion, err := current.Client.Chat.Completions.New(ctx, params)
+	modelTime := time.Since(start)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(completion.Choices) == 0 {
+		return nil, fmt.Errorf("chat completion returned no choices")
+	}
+
+	var calls []memory.ToolCall
+	start = time.Now()
+	for _, call := range completion.Choices[0].Message.ToolCalls {
+		calls = append(calls, memory.ToolCall{
+			ID:        call.ID,
+			Name:      call.Function.Name,
+			Arguments: call.Function.Arguments,
+			Result:    m.callTool(ctx, source, call),
+		})
+	}
+
+	slog.Info("acted",
+		slog.String("model", current.Settings().Model),
+		slog.String("request", request),
+		slog.Int("tool_calls", len(calls)),
+		slog.Duration("model_time", modelTime),
+		slog.Duration("tool_time", time.Since(start)),
+	)
+	return calls, nil
+}
+
 // the assistant message that made a reply's tool calls, rebuilt from history
 func toolCallMessage(toolCalls []memory.ToolCall) openai.ChatCompletionMessageParamUnion {
 	calls := make([]openai.ChatCompletionMessageToolCallUnionParam, len(toolCalls))
@@ -350,8 +411,13 @@ func (m *brainModel) callTool(ctx context.Context, source util.Source, call open
 	return result
 }
 
-// fetches the message history for the source's channel, creating a short term memory for it on first use
+// fetches the message history for the source's channel, creating a short term memory for it on first use.
+// without memory it's an empty holder that forgets everything
 func (m *brainModel) history(src util.Source) (memory.MemoryHolder, error) {
+	if !m.HasFeature(MEMORY) {
+		return memory.NewEmptyMemory(), nil
+	}
+
 	if holder, ok := m.Memory(src.Id, src.Where); ok {
 		return holder, nil
 	}

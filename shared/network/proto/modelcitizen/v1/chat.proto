@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package modelcitizen.v1;
 
+import "modelcitizen/v1/memory.proto";
+
 option go_package = "github.com/Y2Kwastaken/model-citizen/shared/network/gen/modelcitizen/v1;modelcitizenv1";
 
 message ChatRequest {
@@ -9,6 +11,9 @@ message ChatRequest {
   int64 channel_id = 2;
   // the user who asked, passed on to tool calls as who
   string who = 3;
+  // what's new since the last reply, oldest first. kept in the channel's
+  // history when the llm remembers, and always part of the prompt
+  repeated Memory messages = 4;
 }
 
 message ChatResponse {

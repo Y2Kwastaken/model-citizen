@@ -18,7 +18,8 @@ func playAction(services *state.GlobalServices) Action {
 				Required:    true,
 			},
 		},
-		Run: playHandler(services),
+		Serious: true,
+		Run:     playHandler(services),
 	}
 }
 

@@ -73,6 +73,8 @@ There are no defaults here: every key in a file is required. To use a different 
 - `chat.toml`: history size, timeouts, the personalities and the chat providers (`[[chat.clients]]`), tried in order.
 - `stt.toml`: speech to text providers. Optional; without it the bot doesn't understand voice.
 - `tts.toml`: voices, each a list of providers. Optional; without it the bot answers voice in text only.
+- `tools.toml`: a small model the chat model hands serious commands to (music, voice), with its prompt in `tools.md`.
+  Optional; without it the chat model runs every command itself.
 
 A personality is a prompt file in `config/llm/personalities/` and an optional voice:
 

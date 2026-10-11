@@ -11,6 +11,7 @@ func leaveAction() Action {
 	return Action{
 		Name:        "leave",
 		Description: "leaves the user's voice channel",
+		Serious:     true,
 		Run:         leaveHandler,
 	}
 }

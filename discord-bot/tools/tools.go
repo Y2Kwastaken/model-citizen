@@ -24,6 +24,7 @@ func toolFrom(action actions.Action, client *bot.Client) network.Tool {
 		Name:        action.Name,
 		Description: action.Description,
 		Parameters:  schema(action.Params),
+		Serious:     action.Serious,
 		Run:         toolHandler(action, client),
 	}
 }

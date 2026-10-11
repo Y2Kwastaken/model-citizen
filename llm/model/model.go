@@ -47,5 +47,12 @@ type LanguageModel interface {
 	// Creates a chat from a ctx and source information.
 	// A nil source means there exists no source.
 	// No source means no memories or system memories are applied to the response
-	Chat(ctx context.Context, source util.Source) (string, error)
+	// incoming is what's new since the last reply, oldest first. It's stored
+	// in the source's history and always part of the prompt
+	Chat(ctx context.Context, source util.Source, incoming []memory.Memory) (string, error)
+
+	// runs one round of tool calls for request, forcing at least one, and
+	// returns them with their results. There's no reply and history is
+	// neither read nor written
+	Act(ctx context.Context, source util.Source, request string) ([]memory.ToolCall, error)
 }

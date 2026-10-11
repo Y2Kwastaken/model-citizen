@@ -10,6 +10,7 @@ func stopAction(services *state.GlobalServices) Action {
 	return Action{
 		Name:        "stop",
 		Description: "stops the music, ending the current song and clearing the whole queue",
+		Serious:     true,
 		Run:         stopHandler(services),
 	}
 }
