@@ -19,8 +19,9 @@ func targetParam(description string) Param {
 	}
 }
 
-// finds the member in voice the request's user arg names and checks the person
-// asking has permission over them in their channel. the message is the refusal
+// finds the member in voice the request's user arg names and, for slash
+// commands, checks the person asking has permission over them in their
+// channel. the message is the refusal
 func voiceTarget(req Request, permission discord.Permissions) (*discord.Member, string, bool) {
 	client := req.Client
 	query := strings.TrimSpace(req.Args.String("user"))
@@ -31,6 +32,12 @@ func voiceTarget(req Request, permission discord.Permissions) (*discord.Member, 
 	}
 	if target.User.ID == client.ID() {
 		return nil, "the bot won't do that to itself", false
+	}
+
+	// only the llm runs actions in the background, and it acts on its own
+	// judgement, so only discord's check on the bot applies
+	if req.Background {
+		return target, "", true
 	}
 
 	channel, ok := voice.UserChannel(client, target.User.ID, &req.Guild)
