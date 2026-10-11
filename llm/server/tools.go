@@ -57,10 +57,16 @@ func (s *toolServer) RegisterTool(ctx context.Context, req *pb.RegisterToolReque
 		function.Parameters = req.GetParameters().AsMap()
 	}
 
-	err := s.brain.ToolSet().Add(tools.Tool{
+	toolSet, err := s.brain.ToolSet()
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "target model doesn't support tools")
+	}
+
+	err = toolSet.Add(tools.Tool{
 		Function: function,
 		Executor: s.remoteExecutor(name),
 	})
+
 	if err != nil {
 		// a reconnecting bot registers again, it can treat this as success
 		return nil, status.Errorf(codes.AlreadyExists, "registering tool: %v", err)

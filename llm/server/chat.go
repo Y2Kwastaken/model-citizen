@@ -24,7 +24,7 @@ type chatServer struct {
 	brain model.LanguageModel
 	// personality a guild gets the first time it chats
 	defaultPersonality string
-	// how long one reply may take, chat.reply_timeout in llm.toml
+	// how long one reply may take, chat.reply_timeout in chat.toml
 	replyTimeout time.Duration
 
 	// guilds that already had their personality applied, so a later switch

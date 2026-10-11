@@ -8,15 +8,15 @@ import (
 )
 
 const (
-	LLM_CONFIG_DEFAULT = "config/llm.toml"
+	LLM_CONFIG_DEFAULT = "config/llm"
 	LLM_CONFIG_ENV     = "LLM_CONFIG"
 	LLM_ADDR_ENV       = "LLM_ADDR"
 	LLM_ADDR_DEFAULT   = ":50051"
 )
 
 func main() {
-	configFile := shared.EnvOrVal(LLM_CONFIG_ENV, LLM_CONFIG_DEFAULT)
-	config, err := config.Load(configFile)
+	configDir := shared.EnvOrVal(LLM_CONFIG_ENV, LLM_CONFIG_DEFAULT)
+	config, err := config.Load(configDir)
 	if err != nil {
 		panic(err)
 	}
@@ -44,7 +44,11 @@ func makeModel(chat config.Chat) (model.LanguageModel, error) {
 }
 
 func registerTools(config config.Config, brain model.LanguageModel) {
-	tools := brain.ToolSet()
+	tools, err := brain.ToolSet()
+	if err != nil {
+		panic(err)
+	}
+
 	tools.Add(model.MemorizeTool(brain, config.Chat.HistorySize))
 	tools.Add(model.SwitchPersonalityTool(brain))
 }

@@ -66,7 +66,7 @@ func newSpeechServer(brain model.LanguageModel, cfg config.Config) (*speechServe
 
 func (s *speechServer) Transcribe(ctx context.Context, req *pb.TranscribeRequest) (*pb.TranscribeResponse, error) {
 	if s.transcribers == nil {
-		return nil, status.Error(codes.Unimplemented, "no [stt] in the llm config")
+		return nil, status.Error(codes.Unimplemented, "no stt.toml in the llm config")
 	}
 	if len(req.GetAudio()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "audio is required")
@@ -88,7 +88,7 @@ func (s *speechServer) Transcribe(ctx context.Context, req *pb.TranscribeRequest
 // speaks in the voice of the guild's current personality
 func (s *speechServer) Speak(ctx context.Context, req *pb.SpeakRequest) (*pb.SpeakResponse, error) {
 	if s.voices == nil {
-		return nil, status.Error(codes.Unimplemented, "no [tts] in the llm config")
+		return nil, status.Error(codes.Unimplemented, "no tts.toml in the llm config")
 	}
 	if req.GetText() == "" {
 		return nil, status.Error(codes.InvalidArgument, "text is required")

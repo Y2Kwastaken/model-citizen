@@ -1,0 +1,46 @@
+# model-citizen llm configuration: text to speech
+#
+# Text to speech for answering voice commands out loud. Optional: without this
+# file the bot only replies in text. Once it's here every key is required. See
+# chat.toml for durations and API keys.
+
+[tts]
+# How long one reply may take to speak, across every client it fails over to.
+timeout = "30s"
+# How long one attempt on one client may take before failing over to the next.
+per_client_timeout = "15s"
+
+# Like [chat.rotation], for speech.
+[tts.rotation]
+reward = "2s"
+punish = "5s"
+kill = "15s"
+parole = "5m"
+
+# Voices, each a name personalities refer to and the clients that can speak
+# it, tried in order. More than one is an outage plan: a voice that changes
+# mid conversation is worse than a pause, so keep fallbacks sounding alike.
+#
+#   api          openai (default) | mistral | google
+#   model        required for openai and mistral, google's voice is the model
+#   voice        what the service calls the voice
+#   base_url     required for mistral and google, leave out for OpenAI's
+#   api_key_env  environment variable holding the key
+#
+# Google's Chirp 3 HD voices (Puck, Charon, Fenrir, Kore, Aoede, ...) exist
+# under every en-* locale. Mistral's Voxtral takes e.g. voice = "gb_oliver_neutral";
+# pin its model rather than a -latest alias so the voice can't drift.
+
+# upbeat and bright
+[[tts.voices.cheery]]
+api = "google"
+voice = "en-US-Chirp3-HD-Puck"
+base_url = "https://texttospeech.googleapis.com/v1"
+api_key_env = "GOOGLE_KEY"
+
+# low and unhurried
+[[tts.voices.cool]]
+api = "google"
+voice = "en-GB-Chirp3-HD-Charon"
+base_url = "https://texttospeech.googleapis.com/v1"
+api_key_env = "GOOGLE_KEY"

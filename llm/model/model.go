@@ -19,7 +19,7 @@ type LanguageModel interface {
 	// Tools
 
 	// gets the tool set this language model provides
-	ToolSet() tools.ToolSet
+	ToolSet() (tools.ToolSet, error)
 
 	// Memory
 

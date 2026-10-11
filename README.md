@@ -40,7 +40,7 @@ Two services in Go that talk over gRPC:
 You need Docker with compose.
 
 1. **Keys.** Copy `.env.example` to `.env` and fill it in: `DISCORD_KEY`, plus a key for every provider listed in
-   `config/llm.toml`. The llm won't start while one is missing.
+   `config/llm/`. The llm won't start while one is missing.
 2. **Discord.** In the developer portal, turn on the bot's **Message Content Intent** (Bot → Privileged Gateway
    Intents). Without it the bot can't read chat.
 3. **Run it.**
@@ -51,7 +51,7 @@ You need Docker with compose.
 
 ## Configuration
 
-Both files are read once at startup; restart after changing them (`docker compose up -d --force-recreate`). Unknown
+The config is read once at startup; restart after changing them (`docker compose up -d --force-recreate`). Unknown
 keys stop startup, so typos don't go unnoticed. Secrets never go in these files: each provider names the `.env`
 variable that holds its key.
 
@@ -66,15 +66,15 @@ conversation before the wake word goes along with it). A different wake word is 
 `wake_names`, the spellings taken out of transcripts. With `level = "debug"`, `voice level` and `wake word near miss`
 lines in the logs show the numbers to tune against.
 
-### `config/llm.toml`: the brain
+### `config/llm/`: the brain
 
-There are no defaults here: every key is required.
+There are no defaults here: every key in a file is required. To use a different folder, set `LLM_CONFIG`.
 
-- `[chat]`: history size, timeouts, the personalities and the chat providers (`[[chat.clients]]`), tried in order.
-- `[stt]`: speech to text providers. Optional; without it the bot doesn't understand voice.
-- `[tts]`: voices, each a list of providers. Optional; without it the bot answers voice in text only.
+- `chat.toml`: history size, timeouts, the personalities and the chat providers (`[[chat.clients]]`), tried in order.
+- `stt.toml`: speech to text providers. Optional; without it the bot doesn't understand voice.
+- `tts.toml`: voices, each a list of providers. Optional; without it the bot answers voice in text only.
 
-A personality is a prompt file in `config/personalities/` and an optional voice:
+A personality is a prompt file in `config/llm/personalities/` and an optional voice:
 
 ```toml
 [chat.personalities.cool]

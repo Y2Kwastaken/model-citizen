@@ -13,9 +13,10 @@ Each module has its own `go.mod`; `discord-bot` and `llm` import `shared` throug
 - **Repo:** github.com/Y2Kwastaken/model-citizen. `main` is v2; v1's history is on the `v1` branch. The old v1 checkout
   sits next to this folder at `../model-citizen` (useful for reference, its `main` no longer matches the remote).
 - **Commits:** no Claude `Co-Authored-By` (or any other attribution) lines in commits or PRs.
-- **Config:** `config/model-citizen.toml` is the bot's, every value shown is its default. `config/llm.toml` is the
-  llm's, no defaults and every key required; `[stt]` and `[tts]` are optional sections. Personality prompts live in
-  `config/personalities/`. Secrets stay in `.env` (gitignored), named by `api_key_env` in `llm.toml`.
+- **Config:** `config/model-citizen.toml` is the bot's, every value shown is its default. `config/llm/` is the
+  llm's: `chat.toml`, plus `stt.toml` and `tts.toml` which are optional files. No defaults, every key required.
+  Personality prompts live in `config/llm/personalities/`. Secrets stay in `.env` (gitignored), named by
+  `api_key_env` in those files.
 - **Run:** `docker compose up -d --build`. The bot reaches the llm at `llm:50051` (`LLM_ADDRESS`); the llm's port isn't
   published to the host.
 - **Build and test:** build or test the bot with `-tags nolibopusfile` (as the Dockerfile does); outside Docker its
@@ -66,7 +67,7 @@ Each module has its own `go.mod`; `discord-bot` and `llm` import `shared` throug
   `shared.Rotation`: a failing client is benched with `Fail`, a working one is `Judge`d on latency, and the next client
   is tried. The `failover` helper in `llm/server/speech.go` is the pattern.
 - **Config.** `config/model-citizen.toml` (bot) has a default for every key and the file shows them all.
-  `config/llm.toml` has no defaults: every key is required, optional sections are all-or-nothing once present, unknown
+  `config/llm/*.toml` has no defaults: every key is required, optional files are all-or-nothing once present, unknown
   keys and unset `api_key_env` variables stop startup. Add a key to the struct, `Default()` or the required list,
   validation, and the toml with a comment, together. Settings are read once and never change at runtime.
 - **Bot features are actions.** Write it once in `discord-bot/actions/`; it becomes both a slash command

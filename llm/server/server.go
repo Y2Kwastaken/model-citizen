@@ -30,17 +30,17 @@ func StartGrpc(brain model.LanguageModel, cfg config.Config, address string) err
 	pb.RegisterChatServiceServer(server, newChatServer(brain, chat.DefaultPersonality, chat.ReplyTimeout))
 	pb.RegisterToolServiceServer(server, newToolServer(brain))
 
-	// without [stt] or [tts] their half answers Unimplemented
+	// without stt.toml or tts.toml their half answers Unimplemented
 	speech, err := newSpeechServer(brain, cfg)
 	if err != nil {
 		return err
 	}
 	pb.RegisterSpeechServiceServer(server, speech)
 	if !cfg.Stt.Enabled() {
-		slog.Info("no [stt] in the llm config, transcription is off")
+		slog.Info("no stt.toml in the llm config, transcription is off")
 	}
 	if !cfg.Tts.Enabled() {
-		slog.Info("no [tts] in the llm config, speech is off")
+		slog.Info("no tts.toml in the llm config, speech is off")
 	}
 
 	go func() {

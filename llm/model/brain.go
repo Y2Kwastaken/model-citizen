@@ -104,13 +104,21 @@ func (m *brainModel) Features() []FeatureFlag {
 
 // TOOLS
 
-func (m *brainModel) ToolSet() tools.ToolSet {
-	return m.tools
+func (m *brainModel) ToolSet() (tools.ToolSet, error) {
+	if !m.HasFeature(TOOL) {
+		return nil, fmt.Errorf("this brain does not support tools")
+	}
+
+	return m.tools, nil
 }
 
 // MEMORY
 
 func (m *brainModel) Memory(id int64, sid string) (memory.MemoryHolder, bool) {
+	if !m.HasFeature(MEMORY) {
+		return nil, false
+	}
+
 	m.mlock.RLock()
 	section, ok := m.memory[id]
 	m.mlock.RUnlock()
@@ -129,6 +137,10 @@ func (m *brainModel) Memory(id int64, sid string) (memory.MemoryHolder, bool) {
 }
 
 func (m *brainModel) AddMemoryHolder(id int64, sid string, holder memory.MemoryHolder) bool {
+	if !m.HasFeature(MEMORY) {
+		return false
+	}
+
 	m.mlock.Lock()
 	defer m.mlock.Unlock()
 	section, ok := m.memory[id]

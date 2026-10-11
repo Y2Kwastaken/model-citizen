@@ -1,0 +1,47 @@
+# model-citizen llm configuration: speech to text
+#
+# Speech to text for voice commands. Optional: without this file the llm
+# doesn't transcribe. Once it's here every key is required. See chat.toml for
+# durations and API keys.
+
+[stt]
+# Language spoken in voice chat, passed to every service. Empty lets them guess.
+language = "en"
+# How long one clip may take, across every client it fails over to.
+timeout = "30s"
+# How long one attempt on one client may take before failing over to the next.
+per_client_timeout = "10s"
+
+# Like [chat.rotation], for transcription.
+[stt.rotation]
+reward = "2s"
+punish = "5s"
+kill = "10s"
+parole = "5m"
+
+# Transcription clients, tried in order. A failing one is benched and the next
+# is tried.
+#
+#   api          openai (default) | deepgram | assemblyai
+#   model        what the service calls the model
+#   base_url     required for deepgram and assemblyai, leave out for OpenAI's
+#   api_key_env  environment variable holding the key
+#
+# AssemblyAI queues a clip and is polled until it's done, so it goes last.
+
+[[stt.clients]]
+api = "deepgram"
+model = "nova-3"
+base_url = "https://api.deepgram.com"
+api_key_env = "DEEPGRAM_KEY"
+
+[[stt.clients]]
+model = "voxtral-mini-latest"
+base_url = "https://api.mistral.ai/v1"
+api_key_env = "MISTRAL_KEY"
+
+[[stt.clients]]
+api = "assemblyai"
+model = "universal"
+base_url = "https://api.assemblyai.com"
+api_key_env = "ASSEMBLYAI_KEY"

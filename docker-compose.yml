@@ -17,10 +17,10 @@ services:
     build:
       context: .
       dockerfile: llm/Dockerfile
-    # API keys for the chat clients, named by api_key_env in llm.toml
+    # API keys for the chat clients, named by api_key_env in config/llm/
     env_file: .env
     environment:
-      LLM_CONFIG: /config/llm.toml
+      LLM_CONFIG: /config/llm
     volumes:
       - ./config:/config:ro
 
