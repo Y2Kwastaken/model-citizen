@@ -12,9 +12,17 @@ const (
 	LLM_CONFIG_ENV     = "LLM_CONFIG"
 	LLM_ADDR_ENV       = "LLM_ADDR"
 	LLM_ADDR_DEFAULT   = ":50051"
+	LOG_DIR_ENV        = "LOG_DIR"
+	LOG_DIR_DEFAULT    = "logs"
 )
 
 func main() {
+	logs, err := shared.OpenLog(shared.EnvOrVal(LOG_DIR_ENV, LOG_DIR_DEFAULT))
+	if err != nil {
+		panic(err)
+	}
+	defer logs.Close()
+
 	configDir := shared.EnvOrVal(LLM_CONFIG_ENV, LLM_CONFIG_DEFAULT)
 	config, err := config.Load(configDir)
 	if err != nil {

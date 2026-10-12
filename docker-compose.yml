@@ -7,11 +7,13 @@ services:
     environment:
       MODEL_CITIZEN_CONFIG: /config/model-citizen.toml
       LLM_ADDRESS: llm:50051
+      LOG_DIR: /logs
     depends_on:
       - llm
     volumes:
       - songs-cache:/songs/
       - ./config:/config:ro
+      - ./logs/discord-bot:/logs
 
   llm:
     build:
@@ -21,8 +23,10 @@ services:
     env_file: .env
     environment:
       LLM_CONFIG: /config/llm
+      LOG_DIR: /logs
     volumes:
       - ./config:/config:ro
+      - ./logs/llm:/logs
 
 volumes:
   songs-cache:

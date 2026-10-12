@@ -30,9 +30,18 @@ const (
 	DISCORD_KEY          = "DISCORD_KEY"
 	MODEL_CITIZEN_CONFIG = "MODEL_CITIZEN_CONFIG"
 	LLM_ADDRESS          = "LLM_ADDRESS"
+	LOG_DIR              = "LOG_DIR"
 )
 
 func main() {
+	logs, err := shared.OpenLog(shared.EnvOrVal(LOG_DIR, "logs"))
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	// runs last, after the client and llm have closed
+	defer logs.Close()
+
 	cfg, err := config.Load(shared.EnvOrVal(MODEL_CITIZEN_CONFIG, "config/model-citizen.toml"))
 	if err != nil {
 		fmt.Println(err)
