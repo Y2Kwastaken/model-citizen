@@ -17,6 +17,7 @@ const linkPattern = `(https:\/\/)(www.|music.)?(youtube|youtu)(\.com|\.be)`
 type ytdlService struct {
 	downloader   *ytdlp.Command
 	downloadPath string
+	cookiesFile  string
 
 	clock         sync.RWMutex
 	cache         map[string]MusicDownload
@@ -49,6 +50,14 @@ func (s *ytdlService) Setup(ctx context.Context) error {
 		Paths(s.downloadPath).
 		Output("%(extractor)s - %(title)s.%(ext)s").
 		PrintJSON()
+
+	// youtube asks servers on datacenter ips to sign in, cookies from an account get past it
+	if s.cookiesFile != "" {
+		if _, err := os.Stat(s.cookiesFile); err != nil {
+			return fmt.Errorf("finding cookies file: %w", err)
+		}
+		downloader = downloader.Cookies(s.cookiesFile)
+	}
 
 	s.downloader = downloader
 	return nil

@@ -35,7 +35,9 @@ type Music struct {
 	QueueCapacity int           `toml:"queue_capacity"`
 	VolumeDB      float32       `toml:"volume_db"`
 	SearchTimeout time.Duration `toml:"search_timeout"`
-	Cache         Cache         `toml:"cache"`
+	// netscape cookies.txt passed to yt-dlp, empty to search signed out
+	CookiesFile string `toml:"cookies_file"`
+	Cache       Cache  `toml:"cache"`
 }
 
 // wake word listening in voice channels

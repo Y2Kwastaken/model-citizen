@@ -21,7 +21,7 @@ type MusicDownloadService interface {
 	Search(query string, ctx context.Context) (MusicDownload, error)
 }
 
-func NewYoutubeService(downloadPath string, cacheSize int) (MusicDownloadService, error) {
+func NewYoutubeService(downloadPath string, cacheSize int, cookiesFile string) (MusicDownloadService, error) {
 	cache, err := shared.NewCircularQueue[string](cacheSize)
 	if err != nil {
 		return nil, err
@@ -29,6 +29,7 @@ func NewYoutubeService(downloadPath string, cacheSize int) (MusicDownloadService
 
 	return &ytdlService{
 		downloadPath:  downloadPath,
+		cookiesFile:   cookiesFile,
 		cache:         make(map[string]MusicDownload, cacheSize),
 		evictionQueue: cache,
 		downloading:   make(map[string]*sync.WaitGroup),

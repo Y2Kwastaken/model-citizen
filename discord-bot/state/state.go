@@ -28,7 +28,7 @@ type GlobalServices struct {
 }
 
 func InitGlobalServices(cfg config.Config) (GlobalServices, error) {
-	ytService, err := music.NewYoutubeService(cfg.Music.Cache.Directory, cfg.Music.Cache.MaxTracks)
+	ytService, err := music.NewYoutubeService(cfg.Music.Cache.Directory, cfg.Music.Cache.MaxTracks, cfg.Music.CookiesFile)
 	if err != nil {
 		return GlobalServices{}, err
 	}

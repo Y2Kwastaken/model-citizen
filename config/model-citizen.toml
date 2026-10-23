@@ -27,6 +27,11 @@ queue_capacity = 25
 volume_db = -10.0
 # How long /play may spend searching and downloading a song.
 search_timeout = "2m"
+# A Netscape cookies.txt from a signed in YouTube account, for servers YouTube
+# asks to "confirm you're not a bot". Empty searches signed out. yt-dlp rewrites
+# the file, so keep it out of the read only /config, e.g.
+# "/secrets/youtube-cookies.txt" (./secrets on the host).
+cookies_file = ""
 
 [music.cache]
 # Where downloaded songs are stored.
