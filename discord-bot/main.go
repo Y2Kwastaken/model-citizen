@@ -90,8 +90,11 @@ func main() {
 
 	all := actions.All(services)
 	cmdRouter, cmds := router.Router(router.CommandsFrom(all))
+	logins := NewLoginBudget()
 	client, err := disgo.New(token,
 		bot.WithGatewayConfigOpts(
+			// a reconnect loop stops the bot instead of getting its token reset
+			gateway.WithIdentifyRateLimiter(logins),
 			gateway.WithIntents(
 				gateway.IntentGuilds,
 				gateway.IntentGuildVoiceStates,
@@ -144,6 +147,10 @@ func main() {
 	// notify our channel when sigint, sigterm or interrupt occurs
 	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	// we then return our signal to this point
-	<-s
+	select {
+	case <-s:
+	case <-logins.Spent:
+		slog.Error("stopping, too many gateway logins today", slog.Int("max_daily_logins", maxDailyLogins))
+	}
 	// we could run more logic here
 }

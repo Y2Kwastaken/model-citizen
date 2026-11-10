@@ -29,6 +29,10 @@ func Router(commands []Command) (*handler.Mux, []discord.ApplicationCommandCreat
 
 func SyncOnReady(cmds []discord.ApplicationCommandCreate, services *state.GlobalServices) bot.EventListener {
 	return bot.NewListenerFunc(func(e *events.GuildReady) {
+		// every fresh gateway login readies each guild again, only the first one sets it up
+		if _, ok := services.GetGuild(e.GuildID); ok {
+			return
+		}
 		syncCommands(e.Client(), e.GuildID, cmds)
 		services.RegisterGuild(e.GuildID)
 	})
